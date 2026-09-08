@@ -1,0 +1,12 @@
+---
+all:
+  children:
+    proxmox:
+      hosts:
+        proxmox.example:
+          ansible_connection: local
+    raspberry_pi:
+      hosts:
+        raspberry-pi.example:
+          ansible_connection: local
+

@@ -1,0 +1,37 @@
+---
+# Documentation-only inventory. RFC 5737 addresses and .example names are not real hosts.
+all:
+  vars:
+    ansible_user: automation
+  children:
+    linux_managed:
+      children:
+        raspberry_pi:
+          hosts:
+            edge-node.example:
+              ansible_host: 192.0.2.10
+        media_services:
+          hosts:
+            media-server.example:
+              ansible_host: 192.0.2.21
+            download-client.example:
+              ansible_host: 192.0.2.22
+            media-automation.example:
+              ansible_host: 192.0.2.23
+              compose_project_dir: /opt/media-stack
+        development:
+          hosts:
+            dev-tools.example:
+              ansible_host: 192.0.2.24
+    docker_hosts:
+      hosts:
+        media-automation.example:
+    proxmox:
+      hosts:
+        virtualization-host.example:
+          ansible_host: 192.0.2.5
+    # Intentionally excluded from every Linux play.
+    windows:
+      hosts:
+        windows-vm.example:
+          ansible_host: 192.0.2.201

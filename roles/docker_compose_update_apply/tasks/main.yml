@@ -1,0 +1,48 @@
+---
+- name: Initialize Docker Compose result collection
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_results: >-
+      {{ docker_compose_update_apply_results | default([]) }}
+
+- name: Select configured Docker Compose projects
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_selected: >-
+      {{ homelab_compose_projects
+         if workflow_limit in ['all', 'docker']
+         else (homelab_compose_projects
+               | selectattr('target', 'equalto', workflow_limit)
+               | list) }}
+
+- name: Verify Proxmox is reachable before Compose updates
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ connectivity_check_timeout }}"
+  register: docker_compose_update_apply_connection
+  changed_when: false
+  ignore_errors: true
+  ignore_unreachable: true
+  when: docker_compose_update_apply_selected | length > 0
+
+- name: Record Compose projects as failed when Proxmox is unreachable
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_results: >-
+      {{ docker_compose_update_apply_results + [{
+         'target': item.target,
+         'type': 'Docker',
+         'status': 'FAILED',
+         'reboot_required': 'unknown',
+         'error': 'Proxmox became unreachable before Compose update'
+      }] }}
+  loop: "{{ docker_compose_update_apply_selected }}"
+  loop_control:
+    label: "{{ item.target }}"
+  when:
+    - docker_compose_update_apply_selected | length > 0
+    - docker_compose_update_apply_connection is not succeeded
+
+- name: Update each selected Compose project serially
+  ansible.builtin.include_tasks: update-one.yml
+  loop: "{{ docker_compose_update_apply_selected }}"
+  loop_control:
+    loop_var: docker_compose_update_apply_item
+    label: "{{ docker_compose_update_apply_item.target }}"
+  when: docker_compose_update_apply_connection is succeeded

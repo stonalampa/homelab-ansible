@@ -1,0 +1,93 @@
+---
+- name: Check Compose LXC state
+  ansible.builtin.command:
+    argv: [pct, status, "{{ preflight_compose_item.lxc_id | string }}"]
+  register: preflight_compose_state
+  changed_when: false
+  failed_when: false
+
+- name: Check Docker availability inside running Compose LXC
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ preflight_compose_item.lxc_id | string }}"
+      - --
+      - docker
+      - --version
+  register: preflight_compose_docker
+  changed_when: false
+  failed_when: false
+  when:
+    - preflight_compose_state.rc == 0
+    - "'status: running' in preflight_compose_state.stdout"
+
+- name: Check Docker Compose plugin availability
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ preflight_compose_item.lxc_id | string }}"
+      - --
+      - docker
+      - compose
+      - version
+  register: preflight_compose_plugin
+  changed_when: false
+  failed_when: false
+  when:
+    - preflight_compose_docker.rc | default(1) == 0
+
+- name: Check standalone docker-compose availability
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ preflight_compose_item.lxc_id | string }}"
+      - --
+      - docker-compose
+      - version
+  register: preflight_compose_standalone
+  changed_when: false
+  failed_when: false
+  when:
+    - preflight_compose_docker.rc | default(1) == 0
+    - preflight_compose_plugin.rc | default(1) != 0
+
+- name: Select available Compose command
+  ansible.builtin.set_fact:
+    preflight_compose_argv: >-
+      {{ (["pct", "exec", preflight_compose_item.lxc_id | string, "--",
+           "docker", "compose", "--project-directory",
+           preflight_compose_item.project_dir]
+          if preflight_compose_plugin.rc | default(1) == 0
+          else ["pct", "exec", preflight_compose_item.lxc_id | string, "--",
+                "docker-compose", "--project-directory",
+                preflight_compose_item.project_dir]) }}
+  when:
+    - preflight_compose_docker.rc | default(1) == 0
+    - >-
+      preflight_compose_plugin.rc | default(1) == 0
+      or preflight_compose_standalone.rc | default(1) == 0
+
+- name: Validate Compose project directory and file inside LXC
+  ansible.builtin.command:
+    argv: "{{ preflight_compose_argv + ['config', '--quiet'] }}"
+  register: preflight_compose_config
+  changed_when: false
+  failed_when: false
+  when:
+    - preflight_compose_argv is defined
+
+- name: Record Compose project preflight status
+  ansible.builtin.set_fact:
+    preflight_compose_plan: >-
+      {{ preflight_compose_plan + [{
+         'target': preflight_compose_item.target,
+         'status': ('READY'
+                    if preflight_compose_config.rc | default(1) == 0
+                    else 'SKIPPED'),
+         'reason': ('ready for pull and up'
+                    if preflight_compose_config.rc | default(1) == 0
+                    else 'LXC, Docker, or Compose project unavailable')
+      }] }}

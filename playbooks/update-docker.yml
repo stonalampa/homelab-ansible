@@ -1,0 +1,36 @@
+---
+- name: Update configured Docker Compose projects through Proxmox
+  hosts: proxmox
+  gather_facts: false
+  any_errors_fatal: false
+  roles:
+    - role: docker_compose_update_apply
+
+- name: Run configured post-update service health checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: service_health_check
+
+- name: Print Docker report and set exit status
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Collect Docker and health results
+      ansible.builtin.set_fact:
+        update_all_results: >-
+          {{ ((groups['all'] + ['localhost'])
+              | unique
+              | map('extract', hostvars, 'docker_compose_update_apply_results')
+              | select('defined')
+              | flatten)
+             + ((groups['all'] + ['localhost'])
+                | unique
+                | map('extract', hostvars, 'service_health_check_results')
+                | select('defined')
+                | flatten) }}
+
+    - name: Print terminal report, write JSON, and set final status
+      ansible.builtin.include_tasks: tasks/final-report.yml

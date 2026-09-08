@@ -1,0 +1,44 @@
+---
+- name: Mock Proxmox results for an LXC-only preflight
+  hosts: proxmox
+  gather_facts: false
+  tasks:
+    - name: Provide successful LXC and skipped Proxmox results
+      ansible.builtin.set_fact:
+        preflight_proxmox_reachable: true
+        preflight_lxc_states:
+          results:
+            - rc: 0
+              stdout: "status: stopped"
+        preflight_lxc_apt:
+          results:
+            - skipped: true
+              skip_reason: "LXC is stopped"
+        preflight_proxmox_apt:
+          skipped: true
+          skip_reason: "workflow_limit is lxc"
+
+- name: Mock skipped Raspberry Pi result
+  hosts: raspberry_pi
+  gather_facts: false
+  tasks:
+    - name: Provide skipped Raspberry Pi result without rc
+      ansible.builtin.set_fact:
+        preflight_pi_reachable: true
+        preflight_pi_apt:
+          skipped: true
+          skip_reason: "workflow_limit is lxc"
+
+- name: Validate LXC-only preflight results
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    workflow_limit: lxc
+    preflight_brew:
+      skipped: true
+      skip_reason: "workflow_limit is lxc"
+  tasks:
+    - name: Exercise production preflight validation
+      ansible.builtin.include_tasks: ../playbooks/tasks/validate-preflight-results.yml
+

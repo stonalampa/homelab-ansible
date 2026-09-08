@@ -1,0 +1,37 @@
+---
+# Copy to ~/.config/homelab-ansible/group_vars/local.yml and customize locally.
+# Keep credentials out of this file. Future secrets should come from a password
+# manager or an age-encrypted chezmoi source, after that integration is approved.
+connectivity_check_timeout: 10
+
+# LXC IDs and real target labels belong only in the external local.yml.
+# `target` is the stable value accepted by: ./bin/update-all --limit TARGET
+homelab_lxc_containers:
+  - id: 901
+    target: ct-example-media
+  - id: 902
+    target: ct-example-download
+
+# Compose project IDs and paths are also private runtime configuration.
+homelab_compose_projects:
+  - lxc_id: 903
+    target: compose-example-media
+    project_dir: /srv/example-media-stack
+  - lxc_id: 904
+    target: compose-example-tools
+    project_dir: /srv/example-tools-stack
+
+# Addresses and ports below are documentation-only RFC 5737 examples.
+homelab_health_checks:
+  - target: example-web
+    compose_target: compose-example-media
+    protocol: http
+    address: 192.0.2.40
+    port: 18080
+    path: /health
+    expected_status: [200]
+  - target: example-tcp
+    compose_target: compose-example-tools
+    protocol: tcp
+    address: 198.51.100.40
+    port: 19090

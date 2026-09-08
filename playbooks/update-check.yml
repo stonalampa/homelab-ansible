@@ -1,0 +1,26 @@
+---
+- name: Check regular Linux package updates without applying changes
+  hosts: "{{ update_targets | default('linux_managed:lxc:!proxmox:!windows') }}"
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: false
+  roles:
+    - role: connectivity_check
+    - role: apt_update_check
+      when: connectivity_check_reachable | default(false)
+
+- name: Check local Homebrew updates without applying changes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: homebrew_update_check
+      when: homebrew_update_check_enabled | default(true) | bool
+
+- name: Print reboot summary
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Build and print reboot summary
+      ansible.builtin.include_tasks: tasks/reboot-summary.yml

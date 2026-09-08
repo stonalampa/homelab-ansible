@@ -1,0 +1,50 @@
+---
+- name: Check configured service endpoint
+  block:
+    - name: Check HTTP service
+      ansible.builtin.uri:
+        url: >-
+          {{ service_health_check_item.protocol + '://'
+             + service_health_check_item.address + ':'
+             + (service_health_check_item.port | string)
+             + (service_health_check_item.path | default('/')) }}
+        method: GET
+        return_content: false
+        status_code: "{{ service_health_check_item.expected_status }}"
+        timeout: "{{ service_health_check_item.timeout | default(10) }}"
+        validate_certs: "{{ service_health_check_item.validate_certs | default(true) }}"
+      when: service_health_check_item.protocol in ['http', 'https']
+
+    - name: Check TCP service
+      ansible.builtin.wait_for:
+        host: "{{ service_health_check_item.address }}"
+        port: "{{ service_health_check_item.port }}"
+        state: started
+        timeout: "{{ service_health_check_item.timeout | default(10) }}"
+      when: service_health_check_item.protocol == 'tcp'
+
+    - name: Record successful service health check
+      ansible.builtin.set_fact:
+        service_health_check_results: >-
+          {{ service_health_check_results + [{
+             'target': service_health_check_item.target,
+             'type': ('Health-' + (service_health_check_item.protocol | upper)),
+             'status': 'SUCCESS',
+             'reboot_required': 'no',
+             'error': ''
+          }] }}
+  rescue:
+    - name: Record failed service health check
+      ansible.builtin.set_fact:
+        service_health_check_results: >-
+          {{ service_health_check_results + [{
+             'target': service_health_check_item.target,
+             'type': ('Health-' + (service_health_check_item.protocol | upper)),
+             'status': 'FAILED',
+             'reboot_required': 'unknown',
+             'error': 'configured endpoint did not meet its health expectation'
+          }] }}
+
+    - name: Report service health failure and continue
+      ansible.builtin.debug:
+        msg: "FAILED: health check failed for {{ service_health_check_item.target }}."

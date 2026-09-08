@@ -1,0 +1,23 @@
+---
+- name: Simulate a regular APT upgrade
+  ansible.builtin.command:
+    argv:
+      - apt-get
+      - --simulate
+      - upgrade
+  become: true
+  register: apt_update_check_simulation
+  changed_when: false
+  failed_when: apt_update_check_simulation.rc != 0
+
+- name: Build and print APT update report
+  ansible.builtin.include_tasks: report.yml
+
+- name: Check whether a reboot is already required
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: apt_update_check_reboot_file
+
+- name: Record reboot status
+  ansible.builtin.set_fact:
+    apt_update_check_reboot_required: "{{ apt_update_check_reboot_file.stat.exists }}"

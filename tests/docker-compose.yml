@@ -1,0 +1,22 @@
+---
+- name: Exercise Docker Compose update role through mocked pct
+  hosts: proxmox
+  gather_facts: false
+  environment:
+    PATH: "{{ lookup('env', 'DOCKER_MOCK_BIN') }}:{{ lookup('env', 'PATH') }}"
+  vars:
+    connectivity_check_timeout: 2
+    workflow_limit: docker
+    homelab_compose_projects:
+      - lxc_id: 903
+        target: compose-example
+        project_dir: /srv/example-stack
+  roles:
+    - role: docker_compose_update_apply
+  tasks:
+    - name: Verify exactly one Docker result with expected status
+      ansible.builtin.assert:
+        that:
+          - docker_compose_update_apply_results | length == 1
+          - docker_compose_update_apply_results[0].status == expected_status
+

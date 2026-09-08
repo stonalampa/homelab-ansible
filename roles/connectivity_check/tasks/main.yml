@@ -1,0 +1,18 @@
+---
+- name: Check SSH connectivity without changing the host
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ connectivity_check_timeout }}"
+  register: connectivity_check_result
+  ignore_errors: true
+  ignore_unreachable: true
+  changed_when: false
+
+- name: Record host reachability
+  ansible.builtin.set_fact:
+    connectivity_check_reachable: "{{ connectivity_check_result is succeeded }}"
+
+- name: Clearly report an unavailable host
+  ansible.builtin.debug:
+    msg: >-
+      FAILED: {{ inventory_hostname }} is unavailable over SSH; package checks were skipped.
+  when: not connectivity_check_reachable

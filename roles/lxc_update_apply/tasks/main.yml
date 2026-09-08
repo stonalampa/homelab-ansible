@@ -1,0 +1,46 @@
+---
+- name: Initialize Proxmox result collection
+  ansible.builtin.set_fact:
+    lxc_update_apply_results: "{{ lxc_update_apply_results | default([]) }}"
+
+- name: Select configured LXC containers
+  ansible.builtin.set_fact:
+    lxc_update_apply_selected: >-
+      {{ homelab_lxc_containers
+         if workflow_limit in ['all', 'lxc']
+         else (homelab_lxc_containers
+               | selectattr('target', 'equalto', workflow_limit)
+               | list) }}
+
+- name: Verify Proxmox is reachable before LXC updates
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ connectivity_check_timeout }}"
+  register: lxc_update_apply_connection
+  changed_when: false
+  ignore_errors: true
+  ignore_unreachable: true
+  when: lxc_update_apply_selected | length > 0
+
+- name: Record selected LXC containers as failed when Proxmox is unreachable
+  ansible.builtin.set_fact:
+    lxc_update_apply_results: >-
+      {{ lxc_update_apply_results + [{
+         'target': item.target,
+         'type': 'LXC',
+         'status': 'FAILED',
+         'reboot_required': 'unknown'
+      }] }}
+  loop: "{{ lxc_update_apply_selected }}"
+  loop_control:
+    label: "{{ item.target }}"
+  when:
+    - lxc_update_apply_selected | length > 0
+    - lxc_update_apply_connection is not succeeded
+
+- name: Update each selected LXC serially
+  ansible.builtin.include_tasks: update-one.yml
+  loop: "{{ lxc_update_apply_selected }}"
+  loop_control:
+    loop_var: lxc_update_apply_item
+    label: "{{ lxc_update_apply_item.target }}"
+  when: lxc_update_apply_connection is succeeded

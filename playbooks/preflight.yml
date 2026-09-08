@@ -1,0 +1,339 @@
+---
+- name: Validate external configuration schema
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require inventory groups and local runtime definitions
+      ansible.builtin.assert:
+        that:
+          - groups.get('proxmox', []) | length > 0
+          - groups.get('raspberry_pi', []) | length > 0
+          - homelab_lxc_containers is defined
+          - homelab_lxc_containers is sequence
+          - homelab_lxc_containers is not string
+          - homelab_compose_projects is defined
+          - homelab_compose_projects is sequence
+          - homelab_compose_projects is not string
+          - homelab_health_checks is defined
+          - homelab_health_checks is sequence
+          - homelab_health_checks is not string
+          - >-
+            homelab_lxc_containers
+            | selectattr('id', 'undefined')
+            | list
+            | length == 0
+          - >-
+            homelab_lxc_containers
+            | selectattr('target', 'undefined')
+            | list
+            | length == 0
+          - >-
+            (homelab_lxc_containers
+             | map(attribute='target')
+             | unique
+             | list
+             | length) == (homelab_lxc_containers | length)
+        fail_msg: >-
+          External configuration does not match examples/local.example.yml and
+          inventory/inventory.example.yml.
+
+    - name: Validate every configured LXC identifier and target label
+      ansible.builtin.assert:
+        that:
+          - item.id | string is match('^[0-9]+$')
+          - item.target is match('^[A-Za-z0-9_.:-]+$')
+        fail_msg: "LXC IDs must be numeric and target labels must be shell-safe."
+      loop: "{{ homelab_lxc_containers }}"
+      loop_control:
+        label: "{{ item.target | default('invalid-entry') }}"
+
+    - name: Validate every configured Compose project
+      ansible.builtin.assert:
+        that:
+          - item.lxc_id | string is match('^[0-9]+$')
+          - item.target is match('^[A-Za-z0-9_.:-]+$')
+          - item.project_dir is match('^/[A-Za-z0-9_./-]+$')
+          - "'..' not in item.project_dir.split('/')"
+        fail_msg: >-
+          Compose LXC IDs must be numeric, labels shell-safe, and project paths
+          absolute without parent traversal.
+      loop: "{{ homelab_compose_projects }}"
+      loop_control:
+        label: "{{ item.target | default('invalid-entry') }}"
+
+    - name: Require unique Compose target labels
+      ansible.builtin.assert:
+        that:
+          - >-
+            (homelab_compose_projects
+             | map(attribute='target')
+             | unique
+             | list
+             | length) == (homelab_compose_projects | length)
+        fail_msg: "Compose target labels must be unique."
+
+    - name: Validate every configured service health check
+      ansible.builtin.assert:
+        that:
+          - item.target is match('^[A-Za-z0-9_.:-]+$')
+          - item.protocol in ['http', 'https', 'tcp']
+          - item.address is match('^[A-Za-z0-9.:-]+$')
+          - >-
+            item.compose_target is not defined
+            or item.compose_target is match('^[A-Za-z0-9_.:-]+$')
+          - item.port | int > 0
+          - item.port | int < 65536
+          - >-
+            item.protocol == 'tcp'
+            or (item.expected_status is defined
+                and item.expected_status is sequence
+                and item.expected_status is not string)
+          - >-
+            item.path is not defined or item.path is match('^/[A-Za-z0-9_./?&=%-]*$')
+        fail_msg: "Health check configuration is invalid or unsafe."
+      loop: "{{ homelab_health_checks }}"
+      loop_control:
+        label: "{{ item.target | default('invalid-entry') }}"
+
+- name: Preflight Proxmox and configured LXC containers
+  hosts: proxmox
+  gather_facts: false
+  any_errors_fatal: false
+  tasks:
+    - name: Select LXC containers for this run
+      ansible.builtin.set_fact:
+        preflight_selected_lxcs: >-
+          {{ homelab_lxc_containers
+             if workflow_limit in ['all', 'lxc']
+             else (homelab_lxc_containers
+                   | selectattr('target', 'equalto', workflow_limit)
+                   | list) }}
+        preflight_proxmox_selected: >-
+          {{ workflow_limit in ['all', 'proxmox', inventory_hostname] }}
+        preflight_selected_compose_projects: >-
+          {{ homelab_compose_projects
+             if workflow_limit in ['all', 'docker']
+             else (homelab_compose_projects
+                   | selectattr('target', 'equalto', workflow_limit)
+                   | list) }}
+
+    - name: Determine whether Proxmox connectivity is needed
+      ansible.builtin.set_fact:
+        preflight_proxmox_needed: >-
+          {{ preflight_proxmox_selected
+             or preflight_selected_lxcs | length > 0
+             or preflight_selected_compose_projects | length > 0 }}
+
+    - name: Check Proxmox SSH connectivity
+      ansible.builtin.wait_for_connection:
+        timeout: "{{ connectivity_check_timeout }}"
+      register: preflight_proxmox_connection
+      changed_when: false
+      ignore_errors: true
+      ignore_unreachable: true
+      when: preflight_proxmox_needed
+
+    - name: Record Proxmox reachability
+      ansible.builtin.set_fact:
+        preflight_proxmox_reachable: >-
+          {{ (preflight_proxmox_connection is succeeded)
+             if preflight_proxmox_needed else true }}
+
+    - name: Check configured LXC states
+      ansible.builtin.command:
+        argv: [pct, status, "{{ item.id | string }}"]
+      loop: "{{ preflight_selected_lxcs }}"
+      loop_control:
+        label: "{{ item.target }}"
+      register: preflight_lxc_states
+      changed_when: false
+      failed_when: false
+      when: preflight_proxmox_reachable
+
+    - name: Simulate regular package upgrade inside running LXC containers
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ item.item.id | string }}"
+          - --
+          - apt-get
+          - --simulate
+          - upgrade
+      loop: "{{ preflight_lxc_states.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.target }}"
+      register: preflight_lxc_apt
+      changed_when: false
+      failed_when: false
+      when:
+        - item.rc == 0
+        - "'status: running' in item.stdout"
+
+    - name: Report configured LXC state
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item.target }}: {{ item.stdout | default('status unavailable') }}
+      loop: "{{ preflight_lxc_states.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.target }}"
+
+    - name: Report regular LXC updates found by simulation
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item.item.target }}:
+          {{ item.stdout_lines | default([]) | select('match', '^Inst ') | list | length }}
+          regular package update(s) available
+      loop: "{{ preflight_lxc_apt.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item.target | default('skipped') }}"
+      when: item.rc is defined
+
+    - name: Simulate regular Proxmox package upgrade
+      ansible.builtin.command:
+        argv: [apt-get, --simulate, upgrade]
+      become: true
+      register: preflight_proxmox_apt
+      changed_when: false
+      failed_when: false
+      when:
+        - preflight_proxmox_reachable
+        - preflight_proxmox_selected
+
+    - name: Report regular Proxmox updates found by simulation
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ preflight_proxmox_apt.stdout_lines | default([])
+             | select('match', '^Inst ') | list | length }}
+          regular package update(s) available
+      when:
+        - preflight_proxmox_reachable
+        - preflight_proxmox_selected
+
+    - name: Initialize Compose preflight plan
+      ansible.builtin.set_fact:
+        preflight_compose_plan: []
+
+    - name: Check each selected Compose project without changing it
+      ansible.builtin.include_tasks: tasks/preflight-compose-one.yml
+      loop: "{{ preflight_selected_compose_projects }}"
+      loop_control:
+        loop_var: preflight_compose_item
+        label: "{{ preflight_compose_item.target }}"
+      when: preflight_proxmox_reachable
+
+    - name: Report Compose preflight plan
+      ansible.builtin.debug:
+        msg: "{{ item.target }}: {{ item.status }} ({{ item.reason }})"
+      loop: "{{ preflight_compose_plan }}"
+      loop_control:
+        label: "{{ item.target }}"
+
+- name: Preflight Raspberry Pi
+  hosts: raspberry_pi
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: false
+  tasks:
+    - name: Determine whether this Raspberry Pi is selected
+      ansible.builtin.set_fact:
+        preflight_pi_selected: >-
+          {{ workflow_limit in ['all', 'raspberry_pi', inventory_hostname] }}
+
+    - name: Check Raspberry Pi SSH connectivity
+      ansible.builtin.wait_for_connection:
+        timeout: "{{ connectivity_check_timeout }}"
+      register: preflight_pi_connection
+      changed_when: false
+      ignore_errors: true
+      ignore_unreachable: true
+      when: preflight_pi_selected
+
+    - name: Record Raspberry Pi reachability
+      ansible.builtin.set_fact:
+        preflight_pi_reachable: >-
+          {{ (preflight_pi_connection is succeeded) if preflight_pi_selected else true }}
+
+    - name: Simulate regular Raspberry Pi package upgrade
+      ansible.builtin.command:
+        argv: [apt-get, --simulate, upgrade]
+      become: true
+      register: preflight_pi_apt
+      changed_when: false
+      failed_when: false
+      when:
+        - preflight_pi_selected
+        - preflight_pi_reachable
+
+    - name: Report regular Raspberry Pi updates found by simulation
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ preflight_pi_apt.stdout_lines | default([])
+             | select('match', '^Inst ') | list | length }}
+          regular package update(s) available
+      when:
+        - preflight_pi_selected
+        - preflight_pi_reachable
+
+- name: Preflight local Homebrew and print plan
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check Homebrew updates without refreshing metadata
+      ansible.builtin.command: brew outdated --quiet
+      environment:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+      register: preflight_brew
+      changed_when: false
+      failed_when: false
+      when: workflow_limit in ['all', 'localhost', 'homebrew']
+
+    - name: Show apply plan
+      ansible.builtin.debug:
+        msg:
+          - "Selected target: {{ workflow_limit }}"
+          - "LXC containers are updated serially through pct exec."
+          - "VMs are excluded and must be updated manually."
+          - "Only regular upgrades are used; no autoremove or reboot is performed."
+
+    - name: Report available Homebrew updates
+      ansible.builtin.debug:
+        msg: >-
+          localhost: {{ preflight_brew.stdout_lines | default([]) | length }}
+          Homebrew update(s) available
+      when: workflow_limit in ['all', 'localhost', 'homebrew']
+
+    - name: Validate that the requested limit selects a known target
+      ansible.builtin.assert:
+        that:
+          - >-
+            workflow_limit in ['all', 'lxc', 'docker', 'health', 'proxmox',
+            'raspberry_pi', 'localhost', 'homebrew']
+            or workflow_limit in (groups.get('proxmox', [])
+                                  + groups.get('raspberry_pi', []))
+            or (groups.get('proxmox', [])
+                | map('extract', hostvars, 'preflight_selected_lxcs')
+                | select('defined')
+                | flatten
+                | selectattr('target', 'equalto', workflow_limit)
+                | list
+                | length > 0)
+            or (homelab_health_checks
+                | selectattr('target', 'equalto', workflow_limit)
+                | list
+                | length > 0)
+            or (groups.get('proxmox', [])
+                | map('extract', hostvars, 'preflight_selected_compose_projects')
+                | select('defined')
+                | flatten
+                | selectattr('target', 'equalto', workflow_limit)
+                | list
+                | length > 0)
+        fail_msg: "The requested --limit does not match a configured target."
+
+    - name: Run final preflight result validation
+      ansible.builtin.include_tasks: tasks/validate-preflight-results.yml

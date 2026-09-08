@@ -1,0 +1,50 @@
+---
+- name: Exercise HTTP and TCP health checks with partial failures
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_remote_tmp: /tmp/homelab-health-remote
+    workflow_limit: health
+    homelab_health_checks:
+      - target: http-success
+        protocol: http
+        address: 127.0.0.1
+        port: 18081
+        path: /health
+        expected_status: [204]
+        timeout: 2
+      - target: tcp-success
+        protocol: tcp
+        address: 127.0.0.1
+        port: 19091
+        timeout: 2
+      - target: http-failure
+        protocol: http
+        address: 127.0.0.1
+        port: 18081
+        path: /health
+        expected_status: [200]
+        timeout: 2
+      - target: tcp-failure
+        protocol: tcp
+        address: 127.0.0.1
+        port: 19092
+        timeout: 1
+  roles:
+    - role: service_health_check
+  tasks:
+    - name: Verify successful checks were preserved after failures
+      ansible.builtin.assert:
+        that:
+          - service_health_check_results | length == 4
+          - >-
+            service_health_check_results
+            | selectattr('status', 'equalto', 'SUCCESS')
+            | list
+            | length == 2
+          - >-
+            service_health_check_results
+            | selectattr('status', 'equalto', 'FAILED')
+            | list
+            | length == 2

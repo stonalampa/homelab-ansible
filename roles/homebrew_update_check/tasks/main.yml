@@ -1,0 +1,28 @@
+---
+- name: Check whether Homebrew is installed
+  ansible.builtin.command: brew --version
+  register: homebrew_update_check_version
+  changed_when: false
+  failed_when: false
+
+- name: Query outdated Homebrew formulae and casks without auto-update
+  ansible.builtin.command: brew outdated --quiet
+  environment:
+    HOMEBREW_NO_AUTO_UPDATE: "1"
+  register: homebrew_update_check_outdated
+  changed_when: false
+  when: homebrew_update_check_version.rc == 0
+
+- name: Report available Homebrew updates
+  ansible.builtin.debug:
+    msg: >-
+      macOS: {{ homebrew_update_check_outdated.stdout_lines | default([]) | length }}
+      Homebrew update(s) available{{ (': ' +
+      (homebrew_update_check_outdated.stdout_lines | join(', ')))
+      if (homebrew_update_check_outdated.stdout_lines | default([])) else '' }}.
+  when: homebrew_update_check_version.rc == 0
+
+- name: Report missing Homebrew
+  ansible.builtin.debug:
+    msg: "macOS: Homebrew is not installed or is not on PATH."
+  when: homebrew_update_check_version.rc != 0

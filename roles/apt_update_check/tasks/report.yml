@@ -1,0 +1,15 @@
+---
+- name: Extract packages that would be upgraded
+  ansible.builtin.set_fact:
+    apt_update_check_packages: >-
+      {{ apt_update_check_simulation.stdout_lines
+         | select('match', '^Inst ')
+         | map('regex_replace', '^Inst ([^ ]+).*', '\1')
+         | list }}
+
+- name: Report available APT updates
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: {{ apt_update_check_packages | length }} regular package update(s)
+      available{{ (': ' + (apt_update_check_packages | join(', ')))
+      if apt_update_check_packages else '' }}.

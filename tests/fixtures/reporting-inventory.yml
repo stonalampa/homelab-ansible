@@ -1,0 +1,8 @@
+---
+all:
+  children:
+    raspberry_pi:
+      hosts:
+        raspberry-pi.example:
+          ansible_connection: local
+

@@ -1,0 +1,8 @@
+.git
+.venv
+.ansible
+.cache
+.idea
+reports
+.DS_Store
+

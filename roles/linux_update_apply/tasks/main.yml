@@ -1,0 +1,69 @@
+---
+- name: Initialize result collection
+  ansible.builtin.set_fact:
+    linux_update_apply_results: "{{ linux_update_apply_results | default([]) }}"
+
+- name: Verify target is still reachable before applying updates
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ connectivity_check_timeout }}"
+  register: linux_update_apply_connection
+  changed_when: false
+  ignore_errors: true
+  ignore_unreachable: true
+
+- name: Record unreachable Linux target
+  ansible.builtin.set_fact:
+    linux_update_apply_results: >-
+      {{ linux_update_apply_results + [{
+         'target': linux_update_apply_target,
+         'type': linux_update_apply_type,
+         'status': 'FAILED',
+         'reboot_required': 'unknown'
+      }] }}
+  when: linux_update_apply_connection is not succeeded
+
+- name: Apply regular Linux package updates
+  when: linux_update_apply_connection is succeeded
+  block:
+    - name: Refresh APT package metadata
+      ansible.builtin.command:
+        argv: [apt-get, update]
+      become: true
+      changed_when: true
+
+    - name: Apply regular APT upgrade
+      ansible.builtin.command:
+        argv: [apt-get, --yes, upgrade]
+      become: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      changed_when: true
+
+    - name: Check whether reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: linux_update_apply_reboot_file
+
+    - name: Record successful Linux update
+      ansible.builtin.set_fact:
+        linux_update_apply_results: >-
+          {{ linux_update_apply_results + [{
+             'target': linux_update_apply_target,
+             'type': linux_update_apply_type,
+             'status': 'SUCCESS',
+             'reboot_required': ('yes' if linux_update_apply_reboot_file.stat.exists else 'no')
+          }] }}
+  rescue:
+    - name: Record failed Linux update
+      ansible.builtin.set_fact:
+        linux_update_apply_results: >-
+          {{ linux_update_apply_results + [{
+             'target': linux_update_apply_target,
+             'type': linux_update_apply_type,
+             'status': 'FAILED',
+             'reboot_required': 'unknown'
+          }] }}
+
+    - name: Report Linux update failure
+      ansible.builtin.debug:
+        msg: "FAILED: regular package update failed for {{ linux_update_apply_target }}."

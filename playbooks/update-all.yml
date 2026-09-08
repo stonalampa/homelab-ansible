@@ -1,0 +1,77 @@
+---
+- name: Update LXC containers and Proxmox packages
+  hosts: proxmox
+  gather_facts: false
+  any_errors_fatal: false
+  roles:
+    - role: lxc_update_apply
+    - role: docker_compose_update_apply
+    - role: linux_update_apply
+      vars:
+        linux_update_apply_target: "{{ inventory_hostname }}"
+        linux_update_apply_type: Proxmox
+      when: workflow_limit in ['all', 'proxmox', inventory_hostname]
+
+- name: Update Raspberry Pi packages
+  hosts: raspberry_pi
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: false
+  roles:
+    - role: linux_update_apply
+      vars:
+        linux_update_apply_target: "{{ inventory_hostname }}"
+        linux_update_apply_type: Linux
+      when: workflow_limit in ['all', 'raspberry_pi', inventory_hostname]
+
+- name: Update local Homebrew
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: homebrew_update_apply
+      when: workflow_limit in ['all', 'localhost', 'homebrew']
+
+- name: Run post-update service health checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: service_health_check
+
+- name: Print final report and set exit status
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Collect results from every host
+      ansible.builtin.set_fact:
+        update_all_results: >-
+          {{ ((groups['all'] + ['localhost'])
+              | unique
+              | map('extract', hostvars, 'lxc_update_apply_results')
+              | select('defined')
+              | flatten)
+             + ((groups['all'] + ['localhost'])
+                | unique
+                | map('extract', hostvars, 'docker_compose_update_apply_results')
+                | select('defined')
+                | flatten)
+             + ((groups['all'] + ['localhost'])
+                | unique
+                | map('extract', hostvars, 'linux_update_apply_results')
+                | select('defined')
+                | flatten)
+             + ((groups['all'] + ['localhost'])
+                | unique
+                | map('extract', hostvars, 'homebrew_update_apply_results')
+                | select('defined')
+                | flatten)
+             + ((groups['all'] + ['localhost'])
+                | unique
+                | map('extract', hostvars, 'service_health_check_results')
+                | select('defined')
+                | flatten) }}
+
+    - name: Print terminal report, write JSON, and set final status
+      ansible.builtin.include_tasks: tasks/final-report.yml

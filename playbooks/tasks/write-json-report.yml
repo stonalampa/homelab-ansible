@@ -1,0 +1,34 @@
+---
+- name: Initialize machine-readable result rows
+  ansible.builtin.set_fact:
+    update_all_json_results: []
+
+- name: Build sanitized machine-readable result rows
+  ansible.builtin.set_fact:
+    update_all_json_results: >-
+      {{ update_all_json_results + [{
+         'target': item.target,
+         'type': item.type,
+         'status': item.status,
+         'reboot_required': item.reboot_required,
+         'error': item.error
+                  | default('target update failed'
+                            if item.status == 'FAILED' else '')
+      }] }}
+  loop: "{{ update_all_results }}"
+  loop_control:
+    label: "{{ item.target }}"
+
+- name: Write sanitized JSON report locally
+  ansible.builtin.copy:
+    dest: "{{ update_report_path }}"
+    mode: "0600"
+    content: >-
+      {{ {'generated_at': update_report_generated_at,
+          'results': update_all_json_results}
+         | to_nice_json }}
+
+- name: Report JSON output path
+  ansible.builtin.debug:
+    msg: "Machine-readable report: {{ update_report_path }}"
+

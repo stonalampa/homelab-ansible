@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+update_workflow_usage() {
+  echo "Usage: $0 [--limit docker|TARGET]"
+  echo "Configuration: \${HOMELAB_CONFIG_DIR:-~/.config/homelab-ansible}"
+}
+
+# shellcheck source=lib/update-workflow.sh
+source "$repo_dir/bin/lib/update-workflow.sh"
+run_update_workflow \
+  update-docker.yml docker \
+  "Apply will update selected Docker Compose projects and run their health checks." \
+  "$@"
+exit $?

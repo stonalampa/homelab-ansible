@@ -1,0 +1,24 @@
+---
+- name: Print report header
+  ansible.builtin.debug:
+    msg: "TARGET | TYPE | STATUS | REBOOT REQUIRED"
+
+- name: Print one report row per selected target
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.target }} | {{ item.type }} | {{ item.status }} |
+      {{ item.reboot_required }}
+  loop: "{{ update_all_results }}"
+  loop_control:
+    label: "{{ item.target }}"
+
+- name: Build and write sanitized JSON report
+  ansible.builtin.include_tasks: write-json-report.yml
+
+- name: Return failure after the complete report
+  ansible.builtin.assert:
+    that:
+      - update_all_results | selectattr('status', 'equalto', 'FAILED') | list | length == 0
+    fail_msg: "One or more required targets failed. Review the complete report above."
+    success_msg: "All selected required targets completed without failure."
+

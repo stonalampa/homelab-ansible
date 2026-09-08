@@ -1,0 +1,24 @@
+---
+- name: Initialize service health result collection
+  ansible.builtin.set_fact:
+    service_health_check_results: "{{ service_health_check_results | default([]) }}"
+
+- name: Select configured service health checks
+  ansible.builtin.set_fact:
+    service_health_check_selected: >-
+      {{ homelab_health_checks
+         if workflow_limit in ['all', 'health', 'docker']
+         else ((homelab_health_checks
+                | selectattr('target', 'equalto', workflow_limit)
+                | list)
+               + (homelab_health_checks
+                  | selectattr('compose_target', 'defined')
+                  | selectattr('compose_target', 'equalto', workflow_limit)
+                  | list)) | unique(attribute='target') | list }}
+
+- name: Run each selected service health check
+  ansible.builtin.include_tasks: check-one.yml
+  loop: "{{ service_health_check_selected }}"
+  loop_control:
+    loop_var: service_health_check_item
+    label: "{{ service_health_check_item.target }}"

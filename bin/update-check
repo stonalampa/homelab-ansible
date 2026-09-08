@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+config_dir="${HOMELAB_CONFIG_DIR:-${HOME}/.config/homelab-ansible}"
+inventory_file="${config_dir}/inventory.yml"
+local_vars_file="${config_dir}/group_vars/local.yml"
+limit=""
+
+usage() {
+  echo "Usage: $0 [--limit HOST_OR_GROUP]"
+  echo "Configuration: \${HOMELAB_CONFIG_DIR:-~/.config/homelab-ansible}"
+}
+
+while (($#)); do
+  case "$1" in
+    --limit)
+      [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+      limit="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+[[ -f "$inventory_file" ]] || {
+  echo "External inventory not found: $inventory_file" >&2
+  echo "Create it outside this repository; see inventory/inventory.example.yml." >&2
+  exit 2
+}
+
+[[ -f "$local_vars_file" ]] || {
+  echo "External local variables not found: $local_vars_file" >&2
+  echo "Create them outside this repository; see examples/local.example.yml." >&2
+  exit 2
+}
+
+args=(
+  ansible-playbook
+  -i "$inventory_file"
+  --extra-vars "@$local_vars_file"
+  "$repo_dir/playbooks/update-check.yml"
+)
+if [[ -n "$limit" ]]; then
+  args+=(--limit "$limit,localhost")
+  args+=(--extra-vars "homebrew_update_check_enabled=false")
+fi
+ANSIBLE_ROLES_PATH="${repo_dir}/roles" "${args[@]}"

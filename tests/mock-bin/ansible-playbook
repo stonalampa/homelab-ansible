@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -u
+
+scenario="${MOCK_SCENARIO:-success}"
+log_file="${MOCK_LOG:?MOCK_LOG is required}"
+playbook="${*: -1}"
+printf '%s\n' "$playbook" >>"$log_file"
+
+if [[ "$playbook" == */preflight.yml ]]; then
+  echo "MOCK PREFLIGHT: $scenario"
+  if [[ "$scenario" == "unavailable-host" ]]; then
+    echo "A selected required host is unavailable; apply is blocked."
+    exit 4
+  fi
+  exit 0
+fi
+
+if [[ "$playbook" == */update-docker.yml ]]; then
+  echo "TARGET | TYPE | STATUS | REBOOT REQUIRED"
+  echo "compose-example | Docker | SUCCESS | no"
+  echo "example-web | Health-HTTP | SUCCESS | no"
+  exit 0
+fi
+
+if [[ "$playbook" != */update-all.yml ]]; then
+  echo "Unexpected playbook: $playbook" >&2
+  exit 9
+fi
+
+echo "TARGET | TYPE | STATUS | REBOOT REQUIRED"
+case "$scenario" in
+  success)
+    echo "ct-example | LXC | SUCCESS | no"
+    echo "edge-node.example | Linux | SUCCESS | yes"
+    echo "virtualization-host.example | Proxmox | SUCCESS | no"
+    echo "localhost | Homebrew | SUCCESS | no"
+    ;;
+  stopped-lxc)
+    echo "ct-example | LXC | SKIPPED | unknown"
+    echo "virtualization-host.example | Proxmox | SUCCESS | no"
+    ;;
+  partial-failure)
+    echo "ct-example | LXC | FAILED | unknown"
+    echo "edge-node.example | Linux | SUCCESS | no"
+    echo "localhost | Homebrew | SUCCESS | no"
+    exit 1
+    ;;
+  *)
+    echo "Unknown mock scenario: $scenario" >&2
+    exit 9
+    ;;
+esac

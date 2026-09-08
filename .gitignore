@@ -1,0 +1,38 @@
+# Defense in depth: runtime configuration belongs outside this repository.
+ansible.cfg
+inventory/*.yml
+!inventory/*.example.yml
+inventory/*.yaml
+!inventory/*.example.yaml
+local.yml
+group_vars/
+host_vars/
+vars/*.yml
+vars/*.yaml
+!vars/*.example.yml
+!vars/*.example.yaml
+
+# Secrets and Ansible Vault material (examples remain allowed)
+*.vault
+*.vault.yml
+*.vault.yaml
+*.vault-password*
+!.vault-password.example
+vault-password*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Runtime output and local tooling
+.ansible/
+.cache/
+*.retry
+logs/
+reports/
+.venv/
+venv/
+__pycache__/
+.DS_Store
+.idea/
+.vscode/

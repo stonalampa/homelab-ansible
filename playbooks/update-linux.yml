@@ -1,0 +1,10 @@
+---
+# Guardrail: direct apply would bypass the required preflight and confirmation.
+- name: Refuse direct Linux apply entrypoint
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Stop safely
+      ansible.builtin.fail:
+        msg: "Use ./bin/update-all so preflight, confirmation, and reporting are enforced."

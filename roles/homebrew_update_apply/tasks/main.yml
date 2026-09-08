@@ -1,0 +1,42 @@
+---
+- name: Initialize local result collection
+  ansible.builtin.set_fact:
+    homebrew_update_apply_results: "{{ homebrew_update_apply_results | default([]) }}"
+
+- name: Apply Homebrew updates without sudo
+  block:
+    - name: Refresh Homebrew metadata
+      ansible.builtin.command: brew update
+      register: homebrew_update_apply_update
+      changed_when: >-
+        'Already up-to-date' not in homebrew_update_apply_update.stdout
+
+    - name: Upgrade Homebrew formulae and casks
+      ansible.builtin.command: brew upgrade
+      register: homebrew_update_apply_upgrade
+      changed_when: >-
+        'already installed' not in homebrew_update_apply_upgrade.stdout
+
+    - name: Record successful Homebrew update
+      ansible.builtin.set_fact:
+        homebrew_update_apply_results: >-
+          {{ homebrew_update_apply_results + [{
+             'target': 'localhost',
+             'type': 'Homebrew',
+             'status': 'SUCCESS',
+             'reboot_required': 'no'
+          }] }}
+  rescue:
+    - name: Record failed Homebrew update
+      ansible.builtin.set_fact:
+        homebrew_update_apply_results: >-
+          {{ homebrew_update_apply_results + [{
+             'target': 'localhost',
+             'type': 'Homebrew',
+             'status': 'FAILED',
+             'reboot_required': 'unknown'
+          }] }}
+
+    - name: Report Homebrew failure
+      ansible.builtin.debug:
+        msg: "FAILED: Homebrew update failed; other target results are preserved."

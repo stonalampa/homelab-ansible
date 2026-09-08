@@ -1,0 +1,9 @@
+---
+- name: Run configured service health checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    workflow_limit: health
+  roles:
+    - role: service_health_check

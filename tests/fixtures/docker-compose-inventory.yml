@@ -1,0 +1,8 @@
+---
+all:
+  children:
+    proxmox:
+      hosts:
+        proxmox.example:
+          ansible_connection: local
+          ansible_remote_tmp: /tmp/homelab-ansible-mock-remote

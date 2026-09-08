@@ -1,0 +1,99 @@
+---
+- name: Check LXC state
+  ansible.builtin.command:
+    argv: [pct, status, "{{ lxc_update_apply_item.id | string }}"]
+  register: lxc_update_apply_state
+  changed_when: false
+  failed_when: false
+
+- name: Record inaccessible LXC as failed
+  ansible.builtin.set_fact:
+    lxc_update_apply_results: >-
+      {{ lxc_update_apply_results + [{
+         'target': lxc_update_apply_item.target,
+         'type': 'LXC',
+         'status': 'FAILED',
+         'reboot_required': 'unknown'
+      }] }}
+  when: lxc_update_apply_state.rc != 0
+
+- name: Record stopped LXC as skipped
+  ansible.builtin.set_fact:
+    lxc_update_apply_results: >-
+      {{ lxc_update_apply_results + [{
+         'target': lxc_update_apply_item.target,
+         'type': 'LXC',
+         'status': 'SKIPPED',
+         'reboot_required': 'unknown'
+      }] }}
+  when:
+    - lxc_update_apply_state.rc == 0
+    - "'status: running' not in lxc_update_apply_state.stdout"
+
+- name: Update running LXC
+  when:
+    - lxc_update_apply_state.rc == 0
+    - "'status: running' in lxc_update_apply_state.stdout"
+  block:
+    - name: Refresh APT metadata inside LXC
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ lxc_update_apply_item.id | string }}"
+          - --
+          - apt-get
+          - update
+      changed_when: true
+
+    - name: Apply regular APT upgrade inside LXC
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ lxc_update_apply_item.id | string }}"
+          - --
+          - env
+          - DEBIAN_FRONTEND=noninteractive
+          - apt-get
+          - --yes
+          - upgrade
+      changed_when: true
+
+    - name: Check LXC reboot marker
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ lxc_update_apply_item.id | string }}"
+          - --
+          - test
+          - -f
+          - /var/run/reboot-required
+      register: lxc_update_apply_reboot
+      changed_when: false
+      failed_when: lxc_update_apply_reboot.rc not in [0, 1]
+
+    - name: Record successful LXC update
+      ansible.builtin.set_fact:
+        lxc_update_apply_results: >-
+          {{ lxc_update_apply_results + [{
+             'target': lxc_update_apply_item.target,
+             'type': 'LXC',
+             'status': 'SUCCESS',
+             'reboot_required': ('yes' if lxc_update_apply_reboot.rc == 0 else 'no')
+          }] }}
+  rescue:
+    - name: Record failed LXC update
+      ansible.builtin.set_fact:
+        lxc_update_apply_results: >-
+          {{ lxc_update_apply_results + [{
+             'target': lxc_update_apply_item.target,
+             'type': 'LXC',
+             'status': 'FAILED',
+             'reboot_required': 'unknown'
+          }] }}
+
+    - name: Report LXC update failure
+      ansible.builtin.debug:
+        msg: "FAILED: update failed for {{ lxc_update_apply_item.target }}; continuing."

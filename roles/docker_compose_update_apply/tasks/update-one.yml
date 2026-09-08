@@ -1,0 +1,214 @@
+---
+- name: Start Compose prerequisite evaluation
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_ready: true
+
+- name: Check Compose LXC state
+  ansible.builtin.command:
+    argv: [pct, status, "{{ docker_compose_update_apply_item.lxc_id | string }}"]
+  register: docker_compose_update_apply_state
+  changed_when: false
+  failed_when: false
+
+- name: Mark stopped or unavailable LXC as not ready
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_ready: false
+  when: >-
+    docker_compose_update_apply_state.rc != 0
+    or 'status: running' not in docker_compose_update_apply_state.stdout
+
+- name: Check Docker inside running LXC
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ docker_compose_update_apply_item.lxc_id | string }}"
+      - --
+      - docker
+      - --version
+  register: docker_compose_update_apply_docker
+  changed_when: false
+  failed_when: false
+  when: docker_compose_update_apply_ready
+
+- name: Mark missing Docker as not ready
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_ready: false
+  when:
+    - docker_compose_update_apply_ready
+    - docker_compose_update_apply_docker.rc != 0
+
+- name: Check Docker Compose plugin
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ docker_compose_update_apply_item.lxc_id | string }}"
+      - --
+      - docker
+      - compose
+      - version
+  register: docker_compose_update_apply_plugin
+  changed_when: false
+  failed_when: false
+  when: docker_compose_update_apply_ready
+
+- name: Check standalone docker-compose
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ docker_compose_update_apply_item.lxc_id | string }}"
+      - --
+      - docker-compose
+      - version
+  register: docker_compose_update_apply_standalone
+  changed_when: false
+  failed_when: false
+  when:
+    - docker_compose_update_apply_ready
+    - docker_compose_update_apply_plugin.rc | default(1) != 0
+
+- name: Select available Compose command
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_argv: >-
+      {{ (["pct", "exec", docker_compose_update_apply_item.lxc_id | string,
+           "--", "docker", "compose", "--project-directory",
+           docker_compose_update_apply_item.project_dir]
+          if docker_compose_update_apply_plugin.rc | default(1) == 0
+          else ["pct", "exec", docker_compose_update_apply_item.lxc_id | string,
+                "--", "docker-compose", "--project-directory",
+                docker_compose_update_apply_item.project_dir]) }}
+  when:
+    - docker_compose_update_apply_ready
+    - >-
+      docker_compose_update_apply_plugin.rc | default(1) == 0
+      or docker_compose_update_apply_standalone.rc | default(1) == 0
+
+- name: Mark missing Compose command as not ready
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_ready: false
+  when:
+    - docker_compose_update_apply_ready
+    - docker_compose_update_apply_argv is not defined
+
+- name: Validate Compose project directory and file
+  ansible.builtin.command:
+    argv: "{{ docker_compose_update_apply_argv + ['config', '--quiet'] }}"
+  register: docker_compose_update_apply_config
+  changed_when: false
+  failed_when: false
+  when: docker_compose_update_apply_ready
+
+- name: Mark missing or invalid Compose project as not ready
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_ready: false
+  when:
+    - docker_compose_update_apply_ready
+    - docker_compose_update_apply_config.rc != 0
+
+- name: Record unavailable Compose project as skipped
+  ansible.builtin.set_fact:
+    docker_compose_update_apply_results: >-
+      {{ docker_compose_update_apply_results + [{
+         'target': docker_compose_update_apply_item.target,
+         'type': 'Docker',
+         'status': 'SKIPPED',
+         'reboot_required': 'no',
+         'error': 'LXC, Docker, or Compose project unavailable'
+      }] }}
+  when: not docker_compose_update_apply_ready
+
+- name: Pull and recreate ready Compose project
+  when: docker_compose_update_apply_ready
+  block:
+    - name: Pull Compose images
+      ansible.builtin.command:
+        argv: "{{ docker_compose_update_apply_argv + ['pull'] }}"
+      changed_when: true
+
+    - name: Recreate Compose project with pulled images
+      ansible.builtin.command:
+        argv: "{{ docker_compose_update_apply_argv + ['up', '-d'] }}"
+      changed_when: true
+
+    - name: Read Compose container identifiers
+      ansible.builtin.command:
+        argv: "{{ docker_compose_update_apply_argv + ['ps', '-q'] }}"
+      register: docker_compose_update_apply_ps_ids
+      changed_when: false
+
+    - name: Require at least one Compose container
+      ansible.builtin.assert:
+        that:
+          - docker_compose_update_apply_ps_ids.stdout_lines | length > 0
+        fail_msg: "Compose returned no containers after up -d."
+
+    - name: Read every Compose container state
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ docker_compose_update_apply_item.lxc_id | string }}"
+          - --
+          - docker
+          - inspect
+          - --format
+          - "{{ '{{json .State}}' }}"
+          - "{{ item }}"
+      loop: "{{ docker_compose_update_apply_ps_ids.stdout_lines }}"
+      register: docker_compose_update_apply_inspect
+      changed_when: false
+
+    - name: Initialize parsed Compose container states
+      ansible.builtin.set_fact:
+        docker_compose_update_apply_containers: []
+
+    - name: Parse Compose container states
+      ansible.builtin.set_fact:
+        docker_compose_update_apply_containers: >-
+          {{ docker_compose_update_apply_containers + [item.stdout | from_json] }}
+      loop: "{{ docker_compose_update_apply_inspect.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Require every Compose container to be running and healthy
+      ansible.builtin.assert:
+        that:
+          - item.Status | lower == 'running'
+          - >-
+            item.Health is not defined
+            or item.Health.Status | default('') | lower == 'healthy'
+        fail_msg: >-
+          A Compose container is not running/healthy after up -d.
+      loop: "{{ docker_compose_update_apply_containers }}"
+      loop_control:
+        label: "container"
+
+    - name: Record successful Compose update
+      ansible.builtin.set_fact:
+        docker_compose_update_apply_results: >-
+          {{ docker_compose_update_apply_results + [{
+             'target': docker_compose_update_apply_item.target,
+             'type': 'Docker',
+             'status': 'SUCCESS',
+             'reboot_required': 'no',
+             'error': ''
+          }] }}
+  rescue:
+    - name: Record failed Compose update
+      ansible.builtin.set_fact:
+        docker_compose_update_apply_results: >-
+          {{ docker_compose_update_apply_results + [{
+             'target': docker_compose_update_apply_item.target,
+             'type': 'Docker',
+             'status': 'FAILED',
+             'reboot_required': 'unknown',
+             'error': 'pull, up, or container state validation failed'
+          }] }}
+
+    - name: Report Compose update failure and continue
+      ansible.builtin.debug:
+        msg: >-
+          FAILED: pull or up failed for {{ docker_compose_update_apply_item.target }};
+          continuing with remaining projects.

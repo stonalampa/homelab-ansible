@@ -1,0 +1,11 @@
+[defaults]
+inventory = inventory/inventory.yml
+roles_path = roles
+host_key_checking = True
+retry_files_enabled = False
+interpreter_python = auto_silent
+display_skipped_hosts = False
+no_log = False
+
+[ssh_connection]
+pipelining = True

@@ -1,0 +1,55 @@
+---
+- name: Reject unavailable required infrastructure
+  ansible.builtin.assert:
+    that:
+      - >-
+        groups.get('proxmox', [])
+        | map('extract', hostvars, 'preflight_proxmox_reachable')
+        | select('equalto', false)
+        | list
+        | length == 0
+      - >-
+        groups.get('proxmox', [])
+        | map('extract', hostvars, 'preflight_lxc_apt')
+        | select('defined')
+        | map(attribute='results')
+        | flatten
+        | selectattr('rc', 'defined')
+        | selectattr('rc', 'ne', 0)
+        | list
+        | length == 0
+      - >-
+        groups.get('proxmox', [])
+        | map('extract', hostvars, 'preflight_proxmox_apt')
+        | select('defined')
+        | selectattr('rc', 'defined')
+        | selectattr('rc', 'ne', 0)
+        | list
+        | length == 0
+      - >-
+        groups.get('raspberry_pi', [])
+        | map('extract', hostvars, 'preflight_pi_apt')
+        | select('defined')
+        | selectattr('rc', 'defined')
+        | selectattr('rc', 'ne', 0)
+        | list
+        | length == 0
+      - preflight_brew.rc | default(0) == 0
+      - >-
+        groups.get('raspberry_pi', [])
+        | map('extract', hostvars, 'preflight_pi_reachable')
+        | select('equalto', false)
+        | list
+        | length == 0
+      - >-
+        groups.get('proxmox', [])
+        | map('extract', hostvars, 'preflight_lxc_states')
+        | select('defined')
+        | map(attribute='results')
+        | flatten
+        | selectattr('rc', 'ne', 0)
+        | list
+        | length == 0
+    fail_msg: "A required preflight check failed; apply is blocked."
+    success_msg: "Preflight passed. Review the plan before approving apply."
+

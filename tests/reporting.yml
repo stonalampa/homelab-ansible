@@ -1,0 +1,29 @@
+---
+- name: Mock APT reporting data on a checked Raspberry Pi
+  hosts: raspberry_pi
+  gather_facts: false
+  tasks:
+    - name: Provide representative apt-get simulation output
+      ansible.builtin.set_fact:
+        apt_update_check_simulation:
+          stdout_lines:
+            - "Inst curl [1.0] (2.0 Debian:stable [arm64])"
+            - "Inst openssl [3.0] (3.1 Debian-Security:stable-security [arm64])"
+
+    - name: Exercise package-name reporting
+      ansible.builtin.include_role:
+        name: apt_update_check
+        tasks_from: report.yml
+
+    - name: Record checked host without reboot requirement
+      ansible.builtin.set_fact:
+        apt_update_check_reboot_required: false
+
+- name: Exercise aggregate reboot reporting
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Exercise reboot summary
+      ansible.builtin.include_tasks: ../playbooks/tasks/reboot-summary.yml
+

@@ -1,0 +1,29 @@
+---
+- name: Initialize reboot summary lists
+  ansible.builtin.set_fact:
+    checked_linux_hosts: []
+    hosts_requiring_reboot: []
+
+- name: Collect checked Linux hosts
+  ansible.builtin.set_fact:
+    checked_linux_hosts: "{{ checked_linux_hosts + [item] }}"
+    hosts_requiring_reboot: >-
+      {{ hosts_requiring_reboot
+         + ([item] if hostvars[item].apt_update_check_reboot_required else []) }}
+  loop: "{{ groups['all'] }}"
+  when: hostvars[item].apt_update_check_reboot_required is defined
+
+- name: Report reboot requirements for checked hosts
+  ansible.builtin.debug:
+    msg: >-
+      Reboot required on: {{ hosts_requiring_reboot | join(', ')
+      if hosts_requiring_reboot else 'none' }}.
+      Checked Linux hosts: {{ checked_linux_hosts | join(', ') }}.
+      No reboot was performed.
+  when: checked_linux_hosts | length > 0
+
+- name: Report when no Linux host was checked
+  ansible.builtin.debug:
+    msg: "No Linux hosts were checked. No reboot was performed."
+  when: checked_linux_hosts | length == 0
+

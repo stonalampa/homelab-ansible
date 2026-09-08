@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -u
+
+scenario="${DOCKER_MOCK_SCENARIO:-success}"
+log_file="${DOCKER_MOCK_LOG:?DOCKER_MOCK_LOG is required}"
+printf '%s\n' "$*" >>"$log_file"
+
+if [[ "$1" == "status" ]]; then
+  if [[ "$scenario" == "skipped" ]]; then
+    echo "status: stopped"
+  else
+    echo "status: running"
+  fi
+  exit 0
+fi
+
+case " $* " in
+  *" docker --version "*)
+    echo "Docker version mock"
+    ;;
+  *" docker compose version "*)
+    if [[ "$scenario" == "success-v1" ]]; then
+      echo "docker: 'compose' is not a docker command." >&2
+      exit 1
+    fi
+    echo "Docker Compose plugin mock"
+    ;;
+  *" docker-compose version "*)
+    echo "docker-compose standalone mock"
+    ;;
+  *" config --quiet "*)
+    ;;
+  *" pull "*)
+    if [[ "$scenario" == "failed" ]]; then
+      echo "mock pull failure" >&2
+      exit 42
+    fi
+    echo "mock pull success"
+    ;;
+  *" up -d "*)
+    echo "mock up success"
+    ;;
+  *" ps -q "*)
+    echo "mock-container-id"
+    ;;
+  *" docker inspect "*)
+    if [[ "$scenario" == "unhealthy" ]]; then
+      echo '{"Status":"running","Health":{"Status":"unhealthy"}}'
+    elif [[ "$scenario" == "restarting" ]]; then
+      echo '{"Status":"restarting"}'
+    else
+      echo '{"Status":"running","Health":{"Status":"healthy"}}'
+    fi
+    ;;
+  *)
+    echo "Unexpected mock pct invocation: $*" >&2
+    exit 9
+    ;;
+esac
