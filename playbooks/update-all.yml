@@ -18,6 +18,7 @@
   serial: 1
   any_errors_fatal: false
   roles:
+    - role: host_docker_compose_update_apply
     - role: linux_update_apply
       vars:
         linux_update_apply_target: "{{ inventory_hostname }}"
@@ -55,6 +56,11 @@
              + ((groups['all'] + ['localhost'])
                 | unique
                 | map('extract', hostvars, 'docker_compose_update_apply_results')
+                | select('defined')
+                | flatten)
+             + ((groups['all'] + ['localhost'])
+                | unique
+                | map('extract', hostvars, 'host_docker_compose_update_apply_results')
                 | select('defined')
                 | flatten)
              + ((groups['all'] + ['localhost'])

@@ -21,6 +21,12 @@ homelab_compose_projects:
     target: compose-example-tools
     project_dir: /srv/example-tools-stack
 
+# Compose projects running directly on an inventory host (not inside an LXC).
+homelab_host_compose_projects:
+  - inventory_host: edge-node.example
+    target: compose-example-edge
+    project_dir: /srv/example-edge-stack
+
 # Addresses and ports below are documentation-only RFC 5737 examples.
 homelab_health_checks:
   - target: example-web

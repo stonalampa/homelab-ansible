@@ -1,0 +1,22 @@
+---
+- name: Initialize host Docker Compose result collection
+  ansible.builtin.set_fact:
+    host_docker_compose_update_apply_results: []
+
+- name: Select Compose projects assigned to this inventory host
+  ansible.builtin.set_fact:
+    host_docker_compose_update_apply_selected: >-
+      {{ homelab_host_compose_projects
+         | selectattr('inventory_host', 'equalto', inventory_hostname)
+         | selectattr('target', 'in', ([workflow_limit]
+             if workflow_limit not in ['all', 'docker', 'raspberry_pi',
+                                       inventory_hostname]
+             else (homelab_host_compose_projects | map(attribute='target') | list)))
+         | list }}
+
+- name: Update each selected host Compose project serially
+  ansible.builtin.include_tasks: update-one.yml
+  loop: "{{ host_docker_compose_update_apply_selected }}"
+  loop_control:
+    loop_var: host_compose_item
+    label: "{{ host_compose_item.target }}"

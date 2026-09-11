@@ -6,6 +6,14 @@
   roles:
     - role: docker_compose_update_apply
 
+- name: Update Compose projects running directly on managed Linux hosts
+  hosts: linux_managed
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: false
+  roles:
+    - role: host_docker_compose_update_apply
+
 - name: Run configured post-update service health checks
   hosts: localhost
   connection: local
@@ -24,8 +32,13 @@
           {{ ((groups['all'] + ['localhost'])
               | unique
               | map('extract', hostvars, 'docker_compose_update_apply_results')
-              | select('defined')
-              | flatten)
+             | select('defined')
+             | flatten)
+             + ((groups['all'] + ['localhost'])
+                | unique
+                | map('extract', hostvars, 'host_docker_compose_update_apply_results')
+                | select('defined')
+                | flatten)
              + ((groups['all'] + ['localhost'])
                 | unique
                 | map('extract', hostvars, 'service_health_check_results')

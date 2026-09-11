@@ -1,0 +1,66 @@
+---
+- name: Update and validate host Compose project
+  block:
+    - name: Validate host Compose project
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --project-directory
+          - "{{ host_compose_item.project_dir }}"
+          - config
+          - --quiet
+      changed_when: false
+
+    - name: Pull host Compose images
+      ansible.builtin.command:
+        argv: [docker, compose, --project-directory, "{{ host_compose_item.project_dir }}", pull]
+      changed_when: true
+
+    - name: Recreate host Compose project with pulled images
+      ansible.builtin.command:
+        argv: [docker, compose, --project-directory, "{{ host_compose_item.project_dir }}", up, -d]
+      changed_when: true
+
+    - name: Read host Compose container identifiers
+      ansible.builtin.command:
+        argv: [docker, compose, --project-directory, "{{ host_compose_item.project_dir }}", ps, -q]
+      register: host_docker_compose_update_apply_ids
+      changed_when: false
+
+    - name: Require at least one host Compose container
+      ansible.builtin.assert:
+        that: host_docker_compose_update_apply_ids.stdout_lines | length > 0
+
+    - name: Inspect host Compose container states
+      ansible.builtin.command:
+        argv: [docker, inspect, --format, "{{ '{{json .State}}' }}", "{{ item }}"]
+      loop: "{{ host_docker_compose_update_apply_ids.stdout_lines }}"
+      register: host_docker_compose_update_apply_inspect
+      changed_when: false
+
+    - name: Require every host Compose container to be running and healthy
+      ansible.builtin.assert:
+        that:
+          - (item.stdout | from_json).Status | lower == 'running'
+          - >-
+            (item.stdout | from_json).Health is not defined
+            or (item.stdout | from_json).Health.Status | default('') | lower == 'healthy'
+      loop: "{{ host_docker_compose_update_apply_inspect.results }}"
+      loop_control:
+        label: "container"
+
+    - name: Record successful host Compose update
+      ansible.builtin.set_fact:
+        host_docker_compose_update_apply_results: >-
+          {{ host_docker_compose_update_apply_results + [{
+             'target': host_compose_item.target, 'type': 'Docker',
+             'status': 'SUCCESS', 'reboot_required': 'no', 'error': ''}] }}
+  rescue:
+    - name: Record failed host Compose update
+      ansible.builtin.set_fact:
+        host_docker_compose_update_apply_results: >-
+          {{ host_docker_compose_update_apply_results + [{
+             'target': host_compose_item.target, 'type': 'Docker',
+             'status': 'FAILED', 'reboot_required': 'unknown',
+             'error': 'host Compose pull, up, or validation failed'}] }}

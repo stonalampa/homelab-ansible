@@ -63,10 +63,10 @@ passes, it displays the plan and asks for the exact confirmation `APPLY`.
 During apply it uses only `apt-get update` and regular `apt-get upgrade`.
 Configured LXC containers are processed one at a time with `pct exec`; a stopped
 container is `SKIPPED`, while a failure is recorded and processing continues.
-Configured Docker Compose projects are then processed serially through the same
-Proxmox connection. The workflow detects both the modern `docker compose`
-plugin and the legacy `docker-compose` command, then runs `pull` followed by
-`up -d` with whichever implementation is available.
+Configured Docker Compose projects are then processed serially. LXC projects
+run through Proxmox with `pct exec`; projects assigned directly to a managed
+Linux inventory host run through that host's SSH connection. The workflow runs
+`pull` followed by `up -d`.
 Missing prerequisites are `SKIPPED`; an actual pull or up failure is `FAILED`.
 After `up -d`, every Compose container must be running and either healthy or
 without a health status. Exited, dead, restarting, and unhealthy states fail
@@ -172,6 +172,10 @@ homelab_compose_projects:
   - lxc_id: 904
     target: compose-example-tools
     project_dir: /srv/example-tools-stack
+homelab_host_compose_projects:
+  - inventory_host: edge-node.example
+    target: compose-example-edge
+    project_dir: /srv/example-edge-stack
 homelab_health_checks:
   - target: example-web
     protocol: http
@@ -188,7 +192,7 @@ homelab_health_checks:
 The values above are documentation-only. Real IDs and labels belong exclusively
 in `~/.config/homelab-ansible/group_vars/local.yml` and its private chezmoi
 source. `target` is the stable value accepted by `update-all --limit`.
-Compose paths and LXC IDs are never stored in this public repository outside
+Compose paths, inventory host mappings, and LXC IDs are never stored in this public repository outside
 documentation-only examples. Real health-check addresses, ports, protocols,
 paths, and expected HTTP statuses follow the same external-only rule.
 
@@ -242,6 +246,7 @@ the same preflight, confirmation, terminal table, JSON report, and final status:
 ./bin/update-docker
 ./bin/update-docker --limit docker
 ./bin/update-docker --limit compose-example-media
+./bin/update-docker --limit compose-example-edge
 ```
 
 Limit both preflight and apply to one supported target:
@@ -250,6 +255,7 @@ Limit both preflight and apply to one supported target:
 ./bin/update-all --limit ct-example-media
 ./bin/update-all --limit docker
 ./bin/update-all --limit compose-example-media
+./bin/update-all --limit compose-example-edge
 ./bin/update-all --limit health
 ./bin/update-all --limit example-web
 ./bin/update-all --limit raspberry-pi.example

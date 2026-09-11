@@ -15,6 +15,9 @@
           - homelab_compose_projects is defined
           - homelab_compose_projects is sequence
           - homelab_compose_projects is not string
+          - homelab_host_compose_projects is defined
+          - homelab_host_compose_projects is sequence
+          - homelab_host_compose_projects is not string
           - homelab_health_checks is defined
           - homelab_health_checks is sequence
           - homelab_health_checks is not string
@@ -72,6 +75,29 @@
              | list
              | length) == (homelab_compose_projects | length)
         fail_msg: "Compose target labels must be unique."
+
+    - name: Validate every configured host Compose project
+      ansible.builtin.assert:
+        that:
+          - item.inventory_host in groups.get('linux_managed', [])
+          - item.target is match('^[A-Za-z0-9_.:-]+$')
+          - item.project_dir is match('^/[A-Za-z0-9_./-]+$')
+          - "'..' not in item.project_dir.split('/')"
+        fail_msg: >-
+          Host Compose projects need a managed inventory host, shell-safe label,
+          and absolute project path without parent traversal.
+      loop: "{{ homelab_host_compose_projects }}"
+      loop_control:
+        label: "{{ item.target | default('invalid-entry') }}"
+
+    - name: Require globally unique Compose target labels
+      ansible.builtin.assert:
+        that:
+          - >-
+            ((homelab_compose_projects + homelab_host_compose_projects)
+             | map(attribute='target') | unique | list | length)
+            == ((homelab_compose_projects + homelab_host_compose_projects) | length)
+        fail_msg: "Compose target labels must be unique across LXC and host projects."
 
     - name: Validate every configured service health check
       ansible.builtin.assert:
@@ -237,10 +263,22 @@
   serial: 1
   any_errors_fatal: false
   tasks:
+    - name: Select Compose projects running directly on this host
+      ansible.builtin.set_fact:
+        preflight_host_compose_projects: >-
+          {{ homelab_host_compose_projects
+             | selectattr('inventory_host', 'equalto', inventory_hostname)
+             | selectattr('target', 'in', ([workflow_limit]
+                 if workflow_limit not in ['all', 'docker', 'raspberry_pi',
+                                           inventory_hostname]
+                 else (homelab_host_compose_projects | map(attribute='target') | list)))
+             | list }}
+
     - name: Determine whether this Raspberry Pi is selected
       ansible.builtin.set_fact:
         preflight_pi_selected: >-
-          {{ workflow_limit in ['all', 'raspberry_pi', inventory_hostname] }}
+          {{ workflow_limit in ['all', 'raspberry_pi', inventory_hostname]
+             or preflight_host_compose_projects | length > 0 }}
 
     - name: Check Raspberry Pi SSH connectivity
       ansible.builtin.wait_for_connection:
@@ -277,6 +315,17 @@
       when:
         - preflight_pi_selected
         - preflight_pi_reachable
+
+    - name: Validate host Compose project configuration without changing it
+      ansible.builtin.command:
+        argv: [docker, compose, --project-directory, "{{ item.project_dir }}", config, --quiet]
+      loop: "{{ preflight_host_compose_projects }}"
+      loop_control:
+        label: "{{ item.target }}"
+      register: preflight_host_compose_config
+      changed_when: false
+      failed_when: false
+      when: preflight_pi_reachable
 
 - name: Preflight local Homebrew and print plan
   hosts: localhost
@@ -323,6 +372,10 @@
                 | list
                 | length > 0)
             or (homelab_health_checks
+                | selectattr('target', 'equalto', workflow_limit)
+                | list
+                | length > 0)
+            or (homelab_host_compose_projects
                 | selectattr('target', 'equalto', workflow_limit)
                 | list
                 | length > 0)
