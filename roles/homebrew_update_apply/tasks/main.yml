@@ -11,11 +11,20 @@
       changed_when: >-
         'Already up-to-date' not in homebrew_update_apply_update.stdout
 
-    - name: Upgrade Homebrew formulae and casks
-      ansible.builtin.command: brew upgrade
+    - name: Upgrade Homebrew formulae
+      ansible.builtin.command: brew upgrade -y
       register: homebrew_update_apply_upgrade
-      changed_when: >-
-        'already installed' not in homebrew_update_apply_upgrade.stdout
+      changed_when: homebrew_update_apply_upgrade.stdout | trim | length > 0
+
+    - name: Upgrade Homebrew casks
+      ansible.builtin.command: brew upgrade --cask -y
+      register: homebrew_update_apply_upgrade_cask
+      changed_when: homebrew_update_apply_upgrade_cask.stdout | trim | length > 0
+
+    - name: Remove stale Homebrew downloads and old versions
+      ansible.builtin.command: brew cleanup
+      register: homebrew_update_apply_cleanup
+      changed_when: homebrew_update_apply_cleanup.stdout | trim | length > 0
 
     - name: Record successful Homebrew update
       ansible.builtin.set_fact:

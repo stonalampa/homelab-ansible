@@ -67,6 +67,8 @@ Configured Docker Compose projects are then processed serially. LXC projects
 run through Proxmox with `pct exec`; projects assigned directly to a managed
 Linux inventory host run through that host's SSH connection. The workflow runs
 `pull` followed by `up -d`.
+Local Homebrew is updated with `brew update`, `brew upgrade -y`,
+`brew upgrade --cask -y`, and `brew cleanup`, in that order.
 Missing prerequisites are `SKIPPED`; an actual pull or up failure is `FAILED`.
 After `up -d`, every Compose container must be running and either healthy or
 without a health status. Exited, dead, restarting, and unhealthy states fail
