@@ -50,7 +50,11 @@ args=(
   "$repo_dir/playbooks/update-check.yml"
 )
 if [[ -n "$limit" ]]; then
-  args+=(--limit "$limit,localhost")
+  [[ "$limit" =~ ^[A-Za-z0-9_.:-]+$ ]] || {
+    echo "Invalid --limit value: $limit" >&2
+    exit 2
+  }
+  args+=(--extra-vars "{\"update_check_limit\":\"$limit\"}")
   args+=(--extra-vars "homebrew_update_check_enabled=false")
 fi
 ANSIBLE_ROLES_PATH="${repo_dir}/roles" "${args[@]}"

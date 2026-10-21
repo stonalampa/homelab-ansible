@@ -13,7 +13,8 @@ bash -n "$repo_dir/bin/update-check" "$repo_dir/bin/update-all" \
   "$repo_dir/tests/docker-compose-test.sh" \
   "$repo_dir/tests/json-report-test.sh" "$repo_dir/tests/integration-test.sh" \
   "$repo_dir/tests/integration/run.sh" \
-  "$repo_dir/tests/mock-bin/ansible-playbook" "$repo_dir/tests/mock-bin/pct"
+  "$repo_dir/tests/mock-bin/ansible-playbook" "$repo_dir/tests/mock-bin/pct" \
+  "$repo_dir/tests/mock-bin/sudo" "$repo_dir/tests/mock-bin/brew"
 "$repo_dir/bin/update-check" --help >/dev/null
 "$repo_dir/bin/update-docker" --help >/dev/null
 
@@ -52,11 +53,17 @@ ansible-lint "$repo_dir/playbooks" "$repo_dir/roles"
 
 # Guard the apply implementation against explicitly forbidden command forms.
 if grep -RInE --include='*.yml' --include='*.sh' \
-  '^[[:space:]]*-[[:space:]]+(dist-upgrade|full-upgrade|autoremove|reboot|shutdown|sudo)$' \
+  '^[[:space:]]*-[[:space:]]+(dist-upgrade|full-upgrade|reboot|shutdown|sudo)$' \
   "$repo_dir/playbooks" "$repo_dir/roles" "$repo_dir/bin"; then
   echo "A forbidden apply command was found." >&2
   exit 1
 fi
+
+# Autoremove is opt-in and enabled only for the Proxmox role invocation.
+[[ "$(grep -RFl --include='*.yml' 'argv: \[apt-get, --yes, autoremove\]' \
+  "$repo_dir/roles" | wc -l | tr -d ' ')" == "1" ]]
+[[ "$(grep -RFn --include='*.yml' 'linux_update_apply_autoremove: true' \
+  "$repo_dir/playbooks" | wc -l | tr -d ' ')" == "1" ]]
 
 # Docker lifecycle is intentionally limited to pull and up -d.
 if grep -RInE --include='*.yml' \

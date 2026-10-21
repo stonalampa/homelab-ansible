@@ -13,5 +13,6 @@ source "$repo_dir/bin/lib/update-workflow.sh"
 run_update_workflow \
   update-docker.yml docker \
   "Apply will update selected Docker Compose projects and run their health checks." \
+  false \
   "$@"
 exit $?

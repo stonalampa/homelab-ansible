@@ -1,0 +1,77 @@
+---
+- name: Check LXC state
+  ansible.builtin.command:
+    argv: [pct, status, "{{ lxc_update_check_item.id | string }}"]
+  register: lxc_update_check_state
+  changed_when: false
+  failed_when: false
+
+- name: Report inaccessible LXC
+  ansible.builtin.debug:
+    msg: "{{ lxc_update_check_item.target }}: unable to read LXC state."
+  when: lxc_update_check_state.rc != 0
+
+- name: Report stopped LXC
+  ansible.builtin.debug:
+    msg: "{{ lxc_update_check_item.target }}: stopped; package update check skipped."
+  when:
+    - lxc_update_check_state.rc == 0
+    - "'status: running' not in lxc_update_check_state.stdout"
+
+- name: Inspect running LXC
+  when:
+    - lxc_update_check_state.rc == 0
+    - "'status: running' in lxc_update_check_state.stdout"
+  block:
+    - name: Simulate a regular APT upgrade inside LXC
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ lxc_update_check_item.id | string }}"
+          - --
+          - apt-get
+          - --simulate
+          - upgrade
+      register: lxc_update_check_simulation
+      changed_when: false
+
+    - name: Extract LXC packages that would be upgraded
+      ansible.builtin.set_fact:
+        lxc_update_check_packages: >-
+          {{ lxc_update_check_simulation.stdout_lines
+             | select('match', '^Inst ')
+             | map('regex_replace', '^Inst ([^ ]+).*', '\1')
+             | list }}
+
+    - name: Report available LXC APT updates
+      ansible.builtin.debug:
+        msg: >-
+          {{ lxc_update_check_item.target }}: {{ lxc_update_check_packages | length }}
+          regular package update(s) available{{ (': ' +
+          (lxc_update_check_packages | join(', ')))
+          if lxc_update_check_packages else '' }}.
+
+    - name: Check whether an LXC reboot is already required
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ lxc_update_check_item.id | string }}"
+          - --
+          - test
+          - -f
+          - /var/run/reboot-required
+      register: lxc_update_check_reboot
+      changed_when: false
+      failed_when: lxc_update_check_reboot.rc not in [0, 1]
+
+    - name: Report LXC reboot status
+      ansible.builtin.debug:
+        msg: >-
+          {{ lxc_update_check_item.target }}: reboot {{ 'required'
+          if lxc_update_check_reboot.rc == 0 else 'not required' }}.
+  rescue:
+    - name: Report failed LXC package update check
+      ansible.builtin.debug:
+        msg: "{{ lxc_update_check_item.target }}: package update check failed; continuing."

@@ -42,7 +42,12 @@
              'type': ('Health-' + (service_health_check_item.protocol | upper)),
              'status': 'FAILED',
              'reboot_required': 'unknown',
-             'error': 'configured endpoint did not meet its health expectation'
+             'error': ('task=' + (ansible_failed_task.name | default('unknown task'))
+                       + '; error=' + (ansible_failed_result.msg
+                           | default(ansible_failed_result.stderr
+                             | default(ansible_failed_result.stdout
+                               | default('unknown error'), true), true)
+                           | trim))
           }] }}
 
     - name: Report service health failure and continue

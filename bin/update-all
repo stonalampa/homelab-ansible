@@ -17,5 +17,6 @@ source "$repo_dir/bin/lib/update-workflow.sh"
 run_update_workflow \
   update-all.yml all \
   "Apply will update selected LXC, Docker, Raspberry Pi, Proxmox, and Homebrew targets." \
+  true \
   "$@"
 exit $?

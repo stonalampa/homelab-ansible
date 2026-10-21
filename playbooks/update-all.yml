@@ -1,4 +1,12 @@
 ---
+- name: Update local Homebrew while sudo authorization is fresh
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: homebrew_update_apply
+      when: workflow_limit in ['all', 'localhost', 'homebrew']
+
 - name: Update LXC containers and Proxmox packages
   hosts: proxmox
   gather_facts: false
@@ -10,6 +18,7 @@
       vars:
         linux_update_apply_target: "{{ inventory_hostname }}"
         linux_update_apply_type: Proxmox
+        linux_update_apply_autoremove: true
       when: workflow_limit in ['all', 'proxmox', inventory_hostname]
 
 - name: Update Raspberry Pi packages
@@ -24,14 +33,6 @@
         linux_update_apply_target: "{{ inventory_hostname }}"
         linux_update_apply_type: Linux
       when: workflow_limit in ['all', 'raspberry_pi', inventory_hostname]
-
-- name: Update local Homebrew
-  hosts: localhost
-  connection: local
-  gather_facts: false
-  roles:
-    - role: homebrew_update_apply
-      when: workflow_limit in ['all', 'localhost', 'homebrew']
 
 - name: Run post-update service health checks
   hosts: localhost

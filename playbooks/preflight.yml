@@ -347,7 +347,9 @@
           - "Selected target: {{ workflow_limit }}"
           - "LXC containers are updated serially through pct exec."
           - "VMs are excluded and must be updated manually."
-          - "Only regular upgrades are used; no autoremove or reboot is performed."
+          - >-
+            Only regular upgrades are used. Proxmox additionally runs apt-get
+            autoremove; no reboot is performed.
 
     - name: Report available Homebrew updates
       ansible.builtin.debug:

@@ -3,7 +3,7 @@
   ansible.builtin.set_fact:
     homebrew_update_apply_results: "{{ homebrew_update_apply_results | default([]) }}"
 
-- name: Apply Homebrew updates without sudo
+- name: Apply non-interactive Homebrew updates
   block:
     - name: Refresh Homebrew metadata
       ansible.builtin.command: brew update
@@ -11,20 +11,61 @@
       changed_when: >-
         'Already up-to-date' not in homebrew_update_apply_update.stdout
 
-    - name: Upgrade Homebrew formulae
-      ansible.builtin.command: brew upgrade -y
-      register: homebrew_update_apply_upgrade
-      changed_when: homebrew_update_apply_upgrade.stdout | trim | length > 0
+    - name: Query outdated Homebrew formulae
+      ansible.builtin.command: brew outdated --formula --quiet
+      environment:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+      register: homebrew_update_apply_outdated_formulae
+      changed_when: false
 
-    - name: Upgrade Homebrew casks
-      ansible.builtin.command: brew upgrade --cask -y
+    - name: Select formulae safe to upgrade inside Ansible
+      ansible.builtin.set_fact:
+        homebrew_update_apply_formulae: >-
+          {{ homebrew_update_apply_outdated_formulae.stdout_lines
+             | difference(homebrew_update_apply_deferred_formulae) }}
+        homebrew_update_apply_deferred_outdated_formulae: >-
+          {{ homebrew_update_apply_outdated_formulae.stdout_lines
+             | intersect(homebrew_update_apply_deferred_formulae) }}
+
+    - name: Query outdated Homebrew casks
+      ansible.builtin.command: brew outdated --cask --quiet
+      environment:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+      register: homebrew_update_apply_outdated_casks
+      changed_when: false
+
+    - name: Select casks safe for a non-interactive upgrade
+      ansible.builtin.set_fact:
+        homebrew_update_apply_casks: >-
+          {{ homebrew_update_apply_outdated_casks.stdout_lines
+             | difference(homebrew_update_apply_deferred_casks) }}
+        homebrew_update_apply_deferred_outdated_casks: >-
+          {{ homebrew_update_apply_outdated_casks.stdout_lines
+             | intersect(homebrew_update_apply_deferred_casks) }}
+
+    - name: Upgrade non-interactive Homebrew casks
+      ansible.builtin.command:
+        argv: "{{ ['brew', 'upgrade', '--cask'] + homebrew_update_apply_casks }}"
       register: homebrew_update_apply_upgrade_cask
       changed_when: homebrew_update_apply_upgrade_cask.stdout | trim | length > 0
+      when: homebrew_update_apply_casks | length > 0
 
-    - name: Remove stale Homebrew downloads and old versions
-      ansible.builtin.command: brew cleanup
-      register: homebrew_update_apply_cleanup
-      changed_when: homebrew_update_apply_cleanup.stdout | trim | length > 0
+    - name: Upgrade safe Homebrew formulae
+      ansible.builtin.command:
+        argv: "{{ ['brew', 'upgrade', '--formula'] + homebrew_update_apply_formulae }}"
+      register: homebrew_update_apply_upgrade
+      changed_when: homebrew_update_apply_upgrade.stdout | trim | length > 0
+      when: homebrew_update_apply_formulae | length > 0
+
+    - name: Report Homebrew updates deferred until after the workflow
+      ansible.builtin.debug:
+        msg: >-
+          Deferred manual Homebrew updates: formulae={{
+          homebrew_update_apply_deferred_outdated_formulae | join(', ')
+          if homebrew_update_apply_deferred_outdated_formulae else 'none' }};
+          privileged casks={{ homebrew_update_apply_deferred_outdated_casks | join(', ')
+          if homebrew_update_apply_deferred_outdated_casks else 'none' }}.
+          Run brew upgrade for these items after Ansible exits.
 
     - name: Record successful Homebrew update
       ansible.builtin.set_fact:
@@ -36,6 +77,17 @@
              'reboot_required': 'no'
           }] }}
   rescue:
+    - name: Capture Homebrew failure details
+      ansible.builtin.set_fact:
+        homebrew_update_apply_error: >-
+          task={{ ansible_failed_task.name | default('unknown Homebrew task') }};
+          rc={{ ansible_failed_result.rc | default('n/a') }};
+          error={{ ansible_failed_result.stderr
+                    | default(ansible_failed_result.msg
+                              | default(ansible_failed_result.stdout
+                                        | default('unknown Homebrew error'), true), true)
+                    | trim }}
+
     - name: Record failed Homebrew update
       ansible.builtin.set_fact:
         homebrew_update_apply_results: >-
@@ -43,9 +95,12 @@
              'target': 'localhost',
              'type': 'Homebrew',
              'status': 'FAILED',
-             'reboot_required': 'unknown'
+             'reboot_required': 'unknown',
+             'error': homebrew_update_apply_error
           }] }}
 
     - name: Report Homebrew failure
       ansible.builtin.debug:
-        msg: "FAILED: Homebrew update failed; other target results are preserved."
+        msg: >-
+          FAILED: Homebrew update failed; {{ homebrew_update_apply_error }}.
+          Other target results are preserved.

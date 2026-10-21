@@ -12,6 +12,18 @@
   loop_control:
     label: "{{ item.target }}"
 
+- name: Print exact failure details
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.target }} | {{ item.type }} | {{ item.error
+         | default('target update failed') }}
+  loop: >-
+    {{ update_all_results
+       | selectattr('status', 'equalto', 'FAILED')
+       | list }}
+  loop_control:
+    label: "{{ item.target }}"
+
 - name: Build and write sanitized JSON report
   ansible.builtin.include_tasks: write-json-report.yml
 

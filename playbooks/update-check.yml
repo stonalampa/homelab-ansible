@@ -1,13 +1,30 @@
 ---
+- name: Check LXC package updates through Proxmox without applying changes
+  hosts: proxmox
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: false
+  roles:
+    - role: lxc_update_check
+
 - name: Check regular Linux package updates without applying changes
-  hosts: "{{ update_targets | default('linux_managed:lxc:!proxmox:!windows') }}"
+  hosts: linux_managed
   gather_facts: false
   serial: 1
   any_errors_fatal: false
   roles:
     - role: connectivity_check
+      when: >-
+        (update_check_limit | default('all')) == 'all'
+        or inventory_hostname == update_check_limit
+        or update_check_limit in group_names
     - role: apt_update_check
-      when: connectivity_check_reachable | default(false)
+      when:
+        - >-
+          (update_check_limit | default('all')) == 'all'
+          or inventory_hostname == update_check_limit
+          or update_check_limit in group_names
+        - connectivity_check_reachable | default(false)
 
 - name: Check local Homebrew updates without applying changes
   hosts: localhost
@@ -15,7 +32,9 @@
   gather_facts: false
   roles:
     - role: homebrew_update_check
-      when: homebrew_update_check_enabled | default(true) | bool
+      when:
+        - homebrew_update_check_enabled | default(true) | bool
+        - (update_check_limit | default('all')) == 'all'
 
 - name: Print reboot summary
   hosts: localhost

@@ -1,0 +1,34 @@
+---
+- name: Select configured LXC containers for update checks
+  ansible.builtin.set_fact:
+    lxc_update_check_selected: >-
+      {{ homelab_lxc_containers
+         if (update_check_limit | default('all')) in ['all', 'lxc']
+         else (homelab_lxc_containers
+               | selectattr('target', 'equalto', update_check_limit)
+               | list) }}
+
+- name: Verify Proxmox is reachable before LXC update checks
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ connectivity_check_timeout }}"
+  register: lxc_update_check_connection
+  changed_when: false
+  ignore_errors: true
+  ignore_unreachable: true
+  when: lxc_update_check_selected | length > 0
+
+- name: Clearly report an unavailable Proxmox host
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} is unavailable; LXC update checks were skipped.
+  when:
+    - lxc_update_check_selected | length > 0
+    - lxc_update_check_connection is not succeeded
+
+- name: Check each selected LXC serially
+  ansible.builtin.include_tasks: check-one.yml
+  loop: "{{ lxc_update_check_selected }}"
+  loop_control:
+    loop_var: lxc_update_check_item
+    label: "{{ lxc_update_check_item.target }}"
+  when: lxc_update_check_connection is succeeded

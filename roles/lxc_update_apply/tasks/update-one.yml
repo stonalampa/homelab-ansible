@@ -13,7 +13,12 @@
          'target': lxc_update_apply_item.target,
          'type': 'LXC',
          'status': 'FAILED',
-         'reboot_required': 'unknown'
+         'reboot_required': 'unknown',
+         'error': ('pct status failed; rc=' + (lxc_update_apply_state.rc | string)
+                   + '; error=' + (lxc_update_apply_state.stderr
+                       | default(lxc_update_apply_state.stdout
+                         | default('unknown error'), true)
+                       | trim))
       }] }}
   when: lxc_update_apply_state.rc != 0
 
@@ -91,7 +96,14 @@
              'target': lxc_update_apply_item.target,
              'type': 'LXC',
              'status': 'FAILED',
-             'reboot_required': 'unknown'
+             'reboot_required': 'unknown',
+             'error': ('task=' + (ansible_failed_task.name | default('unknown task'))
+                       + '; rc=' + (ansible_failed_result.rc | default('n/a') | string)
+                       + '; error=' + (ansible_failed_result.stderr
+                           | default(ansible_failed_result.msg
+                             | default(ansible_failed_result.stdout
+                               | default('unknown error'), true), true)
+                           | trim))
           }] }}
 
     - name: Report LXC update failure

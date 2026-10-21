@@ -49,6 +49,7 @@ Homebrew. Reboot requirements are only reported; nothing is rebooted.
 `./bin/update-check` is a read-only discovery workflow:
 
 - verifies SSH reachability before inspecting a Linux host;
+- checks configured LXC containers through Proxmox with `pct exec`;
 - runs `apt-get --simulate upgrade`, which calculates regular package updates
   without installing anything or changing repositories;
 - checks the existing `/var/run/reboot-required` marker;
@@ -60,15 +61,20 @@ Homebrew. Reboot requirements are only reported; nothing is rebooted.
 LXC state, simulated APT upgrades, and available Homebrew updates. If preflight
 passes, it displays the plan and asks for the exact confirmation `APPLY`.
 
-During apply it uses only `apt-get update` and regular `apt-get upgrade`.
+During apply it uses `apt-get update` and regular `apt-get upgrade`. On the
+Proxmox host only, it then runs `apt-get --yes autoremove` to remove orphaned
+packages, including old kernels when APT marks them as no longer required.
 Configured LXC containers are processed one at a time with `pct exec`; a stopped
 container is `SKIPPED`, while a failure is recorded and processing continues.
 Configured Docker Compose projects are then processed serially. LXC projects
 run through Proxmox with `pct exec`; projects assigned directly to a managed
 Linux inventory host run through that host's SSH connection. The workflow runs
 `pull` followed by `up -d`.
-Local Homebrew is updated with `brew update`, `brew upgrade -y`,
-`brew upgrade --cask -y`, and `brew cleanup`, in that order.
+Local Homebrew metadata is refreshed after the wrapper obtains sudo
+authorization for privileged casks such as Docker Desktop. Formulae and casks
+are then upgraded, except for the active Ansible/Python runtime; those packages
+are upgraded after the playbook exits, followed by `brew cleanup`. Do not run
+the wrapper itself with sudo because Homebrew must run as the logged-in user.
 Missing prerequisites are `SKIPPED`; an actual pull or up failure is `FAILED`.
 After `up -d`, every Compose container must be running and either healthy or
 without a health status. Exited, dead, restarting, and unhealthy states fail
@@ -227,6 +233,8 @@ solely for the final in-memory summary:
 ```bash
 ./bin/update-check --limit media_services
 ./bin/update-check --limit media-server.example
+./bin/update-check --limit lxc
+./bin/update-check --limit ct-example-media
 ```
 
 Use an alternate external configuration directory:

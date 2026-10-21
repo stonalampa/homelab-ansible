@@ -204,7 +204,13 @@
              'type': 'Docker',
              'status': 'FAILED',
              'reboot_required': 'unknown',
-             'error': 'pull, up, or container state validation failed'
+             'error': ('task=' + (ansible_failed_task.name | default('unknown task'))
+                       + '; rc=' + (ansible_failed_result.rc | default('n/a') | string)
+                       + '; error=' + (ansible_failed_result.stderr
+                           | default(ansible_failed_result.msg
+                             | default(ansible_failed_result.stdout
+                               | default('unknown error'), true), true)
+                           | trim))
           }] }}
 
     - name: Report Compose update failure and continue

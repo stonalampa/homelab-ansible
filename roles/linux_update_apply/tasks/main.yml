@@ -18,7 +18,8 @@
          'target': linux_update_apply_target,
          'type': linux_update_apply_type,
          'status': 'FAILED',
-         'reboot_required': 'unknown'
+         'reboot_required': 'unknown',
+         'error': 'target became unreachable before package update'
       }] }}
   when: linux_update_apply_connection is not succeeded
 
@@ -38,6 +39,17 @@
       environment:
         DEBIAN_FRONTEND: noninteractive
       changed_when: true
+
+    - name: Remove automatically installed packages no longer required
+      ansible.builtin.command:
+        argv: [apt-get, --yes, autoremove]
+      become: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: linux_update_apply_autoremove_result
+      changed_when: >-
+        '0 to remove' not in linux_update_apply_autoremove_result.stdout
+      when: linux_update_apply_autoremove | bool
 
     - name: Check whether reboot is required
       ansible.builtin.stat:
@@ -61,7 +73,14 @@
              'target': linux_update_apply_target,
              'type': linux_update_apply_type,
              'status': 'FAILED',
-             'reboot_required': 'unknown'
+             'reboot_required': 'unknown',
+             'error': ('task=' + (ansible_failed_task.name | default('unknown task'))
+                       + '; rc=' + (ansible_failed_result.rc | default('n/a') | string)
+                       + '; error=' + (ansible_failed_result.stderr
+                           | default(ansible_failed_result.msg
+                             | default(ansible_failed_result.stdout
+                               | default('unknown error'), true), true)
+                           | trim))
           }] }}
 
     - name: Report Linux update failure

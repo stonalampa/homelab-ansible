@@ -4,7 +4,8 @@ run_update_workflow() {
   local apply_playbook="$1"
   local default_limit="$2"
   local apply_description="$3"
-  shift 3
+  local manages_homebrew="$4"
+  shift 4
 
   local config_dir="${HOMELAB_CONFIG_DIR:-${HOME}/.config/homelab-ansible}"
   local inventory_file="${config_dir}/inventory.yml"
@@ -12,6 +13,8 @@ run_update_workflow() {
   local workflow_limit="$default_limit"
   local confirmation
   local preflight_rc
+  local apply_rc
+  local post_homebrew_rc=0
   local report_dir
   local report_generated_at
   local report_file
@@ -67,11 +70,21 @@ run_update_workflow() {
 
   echo
   echo "$apply_description"
-  echo "No VM, major upgrade, autoremove, or reboot operation will run."
+  echo "No VM, major upgrade, or reboot operation will run."
+  echo "Proxmox apply includes apt-get autoremove for orphaned packages."
   read -r -p "Type APPLY to continue: " confirmation
   if [[ "$confirmation" != "APPLY" ]]; then
     echo "Apply cancelled; no update command was run."
     return 2
+  fi
+
+  if [[ "$manages_homebrew" == true \
+        && "$workflow_limit" =~ ^(all|localhost|homebrew)$ ]]; then
+    echo "Authorizing privileged Homebrew cask maintenance."
+    sudo -v || {
+      echo "Sudo authorization failed; apply was not started." >&2
+      return 2
+    }
   fi
 
   report_dir="${repo_dir}/reports"
@@ -86,5 +99,16 @@ run_update_workflow() {
 
   ANSIBLE_ROLES_PATH="${repo_dir}/roles" ansible-playbook \
     "${apply_args[@]}" "$repo_dir/playbooks/$apply_playbook"
+  apply_rc=$?
+
+  if [[ "$manages_homebrew" == true \
+        && "$workflow_limit" =~ ^(all|localhost|homebrew)$ ]]; then
+    echo "Updating the Ansible runtime after the playbook has exited."
+    HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade ansible python@3.14 || post_homebrew_rc=$?
+    brew cleanup || post_homebrew_rc=$?
+  fi
+
+  ((apply_rc != 0)) && return "$apply_rc"
+  return "$post_homebrew_rc"
 }
 

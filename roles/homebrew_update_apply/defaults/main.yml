@@ -1,0 +1,7 @@
+---
+# Updating the Ansible runtime while it is executing removes modules from under
+# the active process. Privileged casks cannot prompt for sudo in this workflow.
+homebrew_update_apply_deferred_formulae:
+  - ansible
+  - python@3.14
+homebrew_update_apply_deferred_casks: []

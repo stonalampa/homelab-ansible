@@ -28,7 +28,8 @@
          'target': item.target,
          'type': 'LXC',
          'status': 'FAILED',
-         'reboot_required': 'unknown'
+         'reboot_required': 'unknown',
+         'error': 'Proxmox became unreachable before LXC update'
       }] }}
   loop: "{{ lxc_update_apply_selected }}"
   loop_control:
