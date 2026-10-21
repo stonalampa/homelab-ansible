@@ -36,8 +36,11 @@ flowchart LR
     Hypervisor -->|pct exec, serially| Download[Download service container]
     Hypervisor -->|pct exec, serially| Stack[Docker Compose container]
     Hypervisor -->|pct exec, serially| Dev[Development container]
+    Hypervisor -->|pct exec, serially| Library[Library container]
     Mac ~~~ VMs[Linux and Windows VMs updated manually]
-    Stack --> Apps[Prowlarr / Sonarr / Radarr / FlareSolverr]
+    Stack --> Apps[Prowlarr / Sonarr / Radarr / Bazarr / FlareSolverr]
+    Dev --> DevApps[IT-Tools / Homepage]
+    Library --> LibApps[Kavita]
 ```
 
 The apply workflow updates configured LXC containers serially through Proxmox,
