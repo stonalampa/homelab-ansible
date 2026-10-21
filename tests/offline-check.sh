@@ -60,10 +60,14 @@ if grep -RInE --include='*.yml' --include='*.sh' \
 fi
 
 # Autoremove is opt-in and enabled only for the Proxmox role invocation.
-[[ "$(grep -RFl --include='*.yml' 'argv: \[apt-get, --yes, autoremove\]' \
-  "$repo_dir/roles" | wc -l | tr -d ' ')" == "1" ]]
-[[ "$(grep -RFn --include='*.yml' 'linux_update_apply_autoremove: true' \
-  "$repo_dir/playbooks" | wc -l | tr -d ' ')" == "1" ]]
+autoremove_command_count="$(grep -RFl --include='*.yml' \
+  'argv: [apt-get, --yes, autoremove]' "$repo_dir/roles" | wc -l | tr -d ' ')"
+autoremove_enable_count="$(grep -RFl --include='*.yml' \
+  'linux_update_apply_autoremove: true' "$repo_dir/playbooks" | wc -l | tr -d ' ')"
+if [[ "$autoremove_command_count" != "1" || "$autoremove_enable_count" != "1" ]]; then
+  echo "Autoremove must be implemented and enabled exactly once for Proxmox." >&2
+  exit 1
+fi
 
 # Docker lifecycle is intentionally limited to pull and up -d.
 if grep -RInE --include='*.yml' \
