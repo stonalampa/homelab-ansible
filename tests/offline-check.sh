@@ -7,7 +7,8 @@ export ANSIBLE_LOCAL_TEMP="$repo_dir/.ansible/tmp"
 export XDG_CACHE_HOME="$repo_dir/.cache"
 
 bash -n "$repo_dir/bin/update-check" "$repo_dir/bin/update-all" \
-  "$repo_dir/bin/update-docker" "$repo_dir/bin/lib/update-workflow.sh" \
+  "$repo_dir/bin/update-docker" "$repo_dir/bin/docker-cleanup" \
+  "$repo_dir/bin/lib/update-workflow.sh" "$repo_dir/tests/docker-cleanup-test.sh" \
   "$repo_dir/tests/mock-workflow.sh" "$repo_dir/tests/reporting-test.sh" \
   "$repo_dir/tests/preflight-lxc-test.sh" \
   "$repo_dir/tests/docker-compose-test.sh" \
@@ -17,6 +18,7 @@ bash -n "$repo_dir/bin/update-check" "$repo_dir/bin/update-all" \
   "$repo_dir/tests/mock-bin/sudo" "$repo_dir/tests/mock-bin/brew"
 "$repo_dir/bin/update-check" --help >/dev/null
 "$repo_dir/bin/update-docker" --help >/dev/null
+"$repo_dir/bin/docker-cleanup" --help >/dev/null
 
 # The wrapper must reference external configuration and must not offer an
 # in-repository inventory override.
@@ -50,6 +52,7 @@ ansible-lint "$repo_dir/playbooks" "$repo_dir/roles"
 "$repo_dir/tests/preflight-lxc-test.sh"
 "$repo_dir/tests/docker-compose-test.sh"
 "$repo_dir/tests/json-report-test.sh"
+"$repo_dir/tests/docker-cleanup-test.sh"
 
 # Guard the apply implementation against explicitly forbidden command forms.
 if grep -RInE --include='*.yml' --include='*.sh' \
@@ -74,6 +77,16 @@ if grep -RInE --include='*.yml' \
   'docker.*(compose[[:space:]]+down|system[[:space:]]+prune|volume[[:space:]]+rm|image[[:space:]]+rm|container[[:space:]]+rm|network[[:space:]]+rm)' \
   "$repo_dir/playbooks" "$repo_dir/roles"; then
   echo "A destructive Docker command was found." >&2
+  exit 1
+fi
+
+# Image cleanup is opt-in, lives only in its own role, and never uses --all.
+prune_lines="$(grep -RhF --include='*.yml' 'image, prune' \
+  "$repo_dir/playbooks" "$repo_dir/roles")"
+if [[ "$(grep -RlF --include='*.yml' 'image, prune' "$repo_dir/playbooks" \
+        "$repo_dir/roles" | grep -vc '/roles/docker_image_prune/')" != "0" ]] \
+   || grep -vE 'image, prune, --force\]$' <<<"$prune_lines"; then
+  echo "Docker image prune must stay dangling-only inside docker_image_prune." >&2
   exit 1
 fi
 

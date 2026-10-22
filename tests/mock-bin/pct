@@ -43,6 +43,20 @@ case " $* " in
   *" ps -q "*)
     echo "mock-container-id"
     ;;
+  *" docker image prune --force "*)
+    if [[ "$scenario" == "prune-failed" ]]; then
+      echo "mock prune failure" >&2
+      exit 43
+    fi
+    echo "Deleted Images:"
+    echo "deleted: sha256:mock"
+    echo
+    echo "Total reclaimed space: 1.5GB"
+    ;;
+  *" df --output=pcent / "*)
+    echo "Use%"
+    echo " 42%"
+    ;;
   *" docker inspect "*)
     if [[ "$scenario" == "unhealthy" ]]; then
       echo '{"Status":"running","Health":{"Status":"unhealthy"}}'

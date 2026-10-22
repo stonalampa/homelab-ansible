@@ -1,0 +1,31 @@
+---
+- name: Exercise Docker image prune role through mocked pct
+  hosts: proxmox
+  gather_facts: false
+  environment:
+    PATH: "{{ lookup('env', 'DOCKER_MOCK_BIN') }}:{{ lookup('env', 'PATH') }}"
+  vars:
+    connectivity_check_timeout: 2
+    workflow_limit: all
+    homelab_lxc_containers:
+      - id: 903
+        target: ct-example-media
+      - id: 904
+        target: ct-example-plain
+    homelab_compose_projects:
+      - lxc_id: 903
+        target: compose-example
+        project_dir: /srv/example-stack
+  roles:
+    - role: docker_image_prune
+  tasks:
+    - name: Verify only the Compose LXC was selected with expected status
+      ansible.builtin.assert:
+        that:
+          - docker_image_prune_results | length == 1
+          - docker_image_prune_results[0].target == 'ct-example-media'
+          - docker_image_prune_results[0].status == expected_status
+          - >-
+            expected_status != 'SUCCESS'
+            or (docker_image_prune_results[0].reclaimed == '1.5GB'
+                and docker_image_prune_results[0].disk_used == '42%')

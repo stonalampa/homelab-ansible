@@ -1,0 +1,59 @@
+---
+- name: Check cleanup LXC state
+  ansible.builtin.command:
+    argv: [pct, status, "{{ docker_image_prune_item.id | string }}"]
+  register: docker_image_prune_state
+  changed_when: false
+  failed_when: false
+
+- name: Record stopped LXC as skipped
+  ansible.builtin.set_fact:
+    docker_image_prune_results: >-
+      {{ docker_image_prune_results + [{
+         'target': docker_image_prune_item.target, 'status': 'SKIPPED',
+         'reclaimed': '-', 'disk_used': '-', 'error': 'LXC is not running'}] }}
+  when: >-
+    docker_image_prune_state.rc != 0
+    or 'status: running' not in docker_image_prune_state.stdout
+
+- name: Remove dangling images inside running LXC
+  when:
+    - docker_image_prune_state.rc == 0
+    - "'status: running' in docker_image_prune_state.stdout"
+  block:
+    - name: Remove dangling Docker images
+      ansible.builtin.command:
+        argv: [pct, exec, "{{ docker_image_prune_item.id | string }}", --,
+               docker, image, prune, --force]
+      register: docker_image_prune_output
+      changed_when: "'Total reclaimed space: 0B' not in docker_image_prune_output.stdout"
+
+    - name: Read LXC root filesystem usage
+      ansible.builtin.command:
+        argv: [pct, exec, "{{ docker_image_prune_item.id | string }}", --,
+               df, --output=pcent, /]
+      register: docker_image_prune_df
+      changed_when: false
+
+    - name: Record successful LXC cleanup
+      ansible.builtin.set_fact:
+        docker_image_prune_results: >-
+          {{ docker_image_prune_results + [{
+             'target': docker_image_prune_item.target, 'status': 'SUCCESS',
+             'reclaimed': (docker_image_prune_output.stdout
+                           | regex_search('Total reclaimed space: (\S+)', '\1')
+                           | default(['unknown'], true) | first),
+             'disk_used': docker_image_prune_df.stdout_lines | last | trim,
+             'error': ''}] }}
+  rescue:
+    - name: Record failed LXC cleanup
+      ansible.builtin.set_fact:
+        docker_image_prune_results: >-
+          {{ docker_image_prune_results + [{
+             'target': docker_image_prune_item.target, 'status': 'FAILED',
+             'reclaimed': '-', 'disk_used': '-',
+             'error': ('task=' + (ansible_failed_task.name | default('unknown task'))
+                       + '; rc=' + (ansible_failed_result.rc | default('n/a') | string)
+                       + '; error=' + (ansible_failed_result.stderr
+                           | default(ansible_failed_result.msg | default('unknown error'), true)
+                           | trim))}] }}

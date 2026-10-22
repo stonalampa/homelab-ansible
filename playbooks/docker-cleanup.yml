@@ -1,0 +1,64 @@
+---
+- name: Remove dangling Docker images in Compose LXCs through Proxmox
+  hosts: proxmox
+  gather_facts: false
+  any_errors_fatal: false
+  roles:
+    - role: docker_image_prune
+
+- name: Remove dangling Docker images on managed Linux hosts
+  hosts: linux_managed
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: false
+  tasks:
+    - name: Prune host images
+      ansible.builtin.include_role:
+        name: docker_image_prune
+        tasks_from: host.yml
+
+- name: Print Docker cleanup report and set exit status
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Collect cleanup results
+      ansible.builtin.set_fact:
+        docker_cleanup_results: >-
+          {{ (groups['all'] + ['localhost'])
+             | unique
+             | map('extract', hostvars, 'docker_image_prune_results')
+             | select('defined')
+             | flatten }}
+
+    - name: Require at least one selected cleanup target
+      ansible.builtin.assert:
+        that:
+          - docker_cleanup_results | length > 0
+        fail_msg: "No Docker cleanup target matched limit '{{ workflow_limit }}'."
+        quiet: true
+
+    - name: Print report header
+      ansible.builtin.debug:
+        msg: "TARGET | STATUS | RECLAIMED | ROOT DISK USED"
+
+    - name: Print one report row per cleaned target
+      ansible.builtin.debug:
+        msg: "{{ item.target }} | {{ item.status }} | {{ item.reclaimed }} | {{ item.disk_used }}"
+      loop: "{{ docker_cleanup_results }}"
+      loop_control:
+        label: "{{ item.target }}"
+
+    - name: Print exact failure details
+      ansible.builtin.debug:
+        msg: "{{ item.target }} | {{ item.error }}"
+      loop: "{{ docker_cleanup_results | selectattr('status', 'equalto', 'FAILED') | list }}"
+      loop_control:
+        label: "{{ item.target }}"
+
+    - name: Return failure after the complete report
+      ansible.builtin.assert:
+        that:
+          - docker_cleanup_results | selectattr('status', 'equalto', 'FAILED') | list | length == 0
+        fail_msg: "One or more cleanup targets failed. Review the report above."
+        success_msg: "Docker cleanup completed without failure."

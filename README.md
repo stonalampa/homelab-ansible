@@ -95,7 +95,9 @@ non-zero after the report. A sanitized JSON report is also written with mode
   `linux_managed:lxc:!proxmox:!windows`; `lxc` keeps simple inventories
   compatible while the explicit exclusions preserve the safety boundary.
 - No playbook performs a reboot, distribution upgrade, repository edit, volume
-  removal, image prune, or other destructive Docker operation.
+  removal, or other destructive Docker operation. The update workflow never
+  prunes images; the separate, confirmed `docker-cleanup` command removes only
+  dangling (untagged) images, never with `--all`.
 - LXC updates are serialized, and Raspberry Pi hosts use `serial: 1`.
 - Host connectivity is checked first; an unavailable host is reported clearly.
 - `any_errors_fatal: false` allows other hosts to be inspected while Ansible's
@@ -278,6 +280,21 @@ Limit both preflight and apply to one supported target:
 Linux and Windows VM inventory groups are never selected by `update-all`; all
 VMs are updated manually. Unknown limits fail during preflight.
 
+Every `pull` + `up -d` leaves the previous image version behind as a dangling
+`<none>` image, which slowly fills small LXC root disks. Remove them on demand
+from every LXC that runs a configured Compose project and every host listed in
+`homelab_host_compose_projects`, or from one target:
+
+```bash
+./bin/docker-cleanup
+./bin/docker-cleanup --limit ct-example-media
+./bin/docker-cleanup --limit raspberry-pi.example
+```
+
+The command asks for `APPLY`, runs `docker image prune --force` serially, and
+prints reclaimed space plus root filesystem usage per target. Images used by
+any container, volumes, networks and stopped containers are kept.
+
 ## Testing without homelab access
 
 Run the same checks as CI:
@@ -289,7 +306,8 @@ make test
 The test validates shell syntax, parses the example inventory, syntax-checks
 every playbook, lints YAML and Ansible content, scans for common secret-material
 patterns, and runs mocked full-success, unavailable-host, stopped-LXC,
-partial-failure, and Docker Compose `SUCCESS`/`SKIPPED`/`FAILED` scenarios.
+partial-failure, Docker Compose `SUCCESS`/`SKIPPED`/`FAILED`, and Docker
+image cleanup scenarios.
 Docker tests execute the production role against a fake `pct` binary and cover
 both `docker compose` v2 and standalone `docker-compose` v1. They cannot open
 SSH connections, invoke Docker, or run package managers.
@@ -312,8 +330,8 @@ configured with a route or self-hosted runner into the home network.
 ## Intentionally not automated
 
 The project does not automate major Debian or Proxmox upgrades, APT repository
-changes, hypervisor reboots, Linux or Windows VM updates, destructive Docker
-cleanup, storage migration, backup deletion, or publishing this repository.
+changes, hypervisor reboots, Linux or Windows VM updates, Docker cleanup
+beyond dangling images, storage migration, backup deletion, or publishing this repository.
 Those operations require separate planning, backups, maintenance windows, and
 human approval.
 

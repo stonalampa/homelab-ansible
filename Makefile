@@ -1,7 +1,10 @@
-.PHONY: check integration lint syntax test update
+.PHONY: check cleanup integration lint syntax test update
 
 check:
 	./bin/update-check
+
+cleanup:
+	./bin/docker-cleanup
 
 lint:
 	yamllint .

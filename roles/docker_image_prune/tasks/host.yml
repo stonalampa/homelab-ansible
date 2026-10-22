@@ -1,0 +1,69 @@
+---
+- name: Initialize host Docker image prune result collection
+  ansible.builtin.set_fact:
+    docker_image_prune_results: []
+    docker_image_prune_host_selected: >-
+      {{ inventory_hostname in (homelab_host_compose_projects
+                                | map(attribute='inventory_host'))
+         and workflow_limit in ['all', 'docker', inventory_hostname] }}
+
+- name: Verify host is reachable before image cleanup
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ connectivity_check_timeout }}"
+  register: docker_image_prune_connection
+  changed_when: false
+  ignore_errors: true
+  ignore_unreachable: true
+  when: docker_image_prune_host_selected
+
+- name: Record host cleanup as failed when host is unreachable
+  ansible.builtin.set_fact:
+    docker_image_prune_results:
+      - target: "{{ inventory_hostname }}"
+        status: FAILED
+        reclaimed: "-"
+        disk_used: "-"
+        error: Host became unreachable before cleanup
+  when:
+    - docker_image_prune_host_selected
+    - docker_image_prune_connection is not succeeded
+
+- name: Remove dangling images on hosts that run configured Compose projects
+  when:
+    - docker_image_prune_host_selected
+    - docker_image_prune_connection is succeeded
+  block:
+    - name: Remove dangling host Docker images
+      ansible.builtin.command:
+        argv: [docker, image, prune, --force]
+      register: docker_image_prune_output
+      changed_when: "'Total reclaimed space: 0B' not in docker_image_prune_output.stdout"
+
+    - name: Read host root filesystem usage
+      ansible.builtin.command:
+        argv: [df, --output=pcent, /]
+      register: docker_image_prune_df
+      changed_when: false
+
+    - name: Record successful host cleanup
+      ansible.builtin.set_fact:
+        docker_image_prune_results: >-
+          {{ docker_image_prune_results + [{
+             'target': inventory_hostname, 'status': 'SUCCESS',
+             'reclaimed': (docker_image_prune_output.stdout
+                           | regex_search('Total reclaimed space: (\S+)', '\1')
+                           | default(['unknown'], true) | first),
+             'disk_used': docker_image_prune_df.stdout_lines | last | trim,
+             'error': ''}] }}
+  rescue:
+    - name: Record failed host cleanup
+      ansible.builtin.set_fact:
+        docker_image_prune_results: >-
+          {{ docker_image_prune_results + [{
+             'target': inventory_hostname, 'status': 'FAILED',
+             'reclaimed': '-', 'disk_used': '-',
+             'error': ('task=' + (ansible_failed_task.name | default('unknown task'))
+                       + '; rc=' + (ansible_failed_result.rc | default('n/a') | string)
+                       + '; error=' + (ansible_failed_result.stderr
+                           | default(ansible_failed_result.msg | default('unknown error'), true)
+                           | trim))}] }}

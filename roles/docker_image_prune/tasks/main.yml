@@ -1,0 +1,45 @@
+---
+- name: Initialize Docker image prune result collection
+  ansible.builtin.set_fact:
+    docker_image_prune_results: []
+
+- name: Select LXC containers that run configured Compose projects
+  ansible.builtin.set_fact:
+    docker_image_prune_selected: >-
+      {{ homelab_lxc_containers
+         | selectattr('id', 'in', homelab_compose_projects
+                                  | map(attribute='lxc_id') | list)
+         | selectattr('target', 'in', ([workflow_limit]
+             if workflow_limit not in ['all', 'docker']
+             else (homelab_lxc_containers | map(attribute='target') | list)))
+         | list }}
+
+- name: Verify Proxmox is reachable before image cleanup
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ connectivity_check_timeout }}"
+  register: docker_image_prune_connection
+  changed_when: false
+  ignore_errors: true
+  ignore_unreachable: true
+  when: docker_image_prune_selected | length > 0
+
+- name: Record LXC cleanup as failed when Proxmox is unreachable
+  ansible.builtin.set_fact:
+    docker_image_prune_results: >-
+      {{ docker_image_prune_results + [{
+         'target': item.target, 'status': 'FAILED', 'reclaimed': '-',
+         'disk_used': '-', 'error': 'Proxmox became unreachable before cleanup'}] }}
+  loop: "{{ docker_image_prune_selected }}"
+  loop_control:
+    label: "{{ item.target }}"
+  when:
+    - docker_image_prune_selected | length > 0
+    - docker_image_prune_connection is not succeeded
+
+- name: Prune each selected LXC serially
+  ansible.builtin.include_tasks: prune-lxc.yml
+  loop: "{{ docker_image_prune_selected }}"
+  loop_control:
+    loop_var: docker_image_prune_item
+    label: "{{ docker_image_prune_item.target }}"
+  when: docker_image_prune_connection is succeeded
