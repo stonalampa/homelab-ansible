@@ -37,10 +37,17 @@ flowchart LR
     Hypervisor -->|pct exec, serially| Stack[Docker Compose container]
     Hypervisor -->|pct exec, serially| Dev[Development container]
     Hypervisor -->|pct exec, serially| Library[Library container]
+    Hypervisor -->|pct exec, serially| Monitor[Monitoring container]
+    Hypervisor -->|pct exec, serially| AI[GPU inference container]
+    Hypervisor -->|pct exec, serially| Docs[Document container]
     Mac ~~~ VMs[Linux and Windows VMs updated manually]
     Stack --> Apps[Prowlarr / Sonarr / Radarr / Bazarr / FlareSolverr]
     Dev --> DevApps[IT-Tools / Homepage]
     Library --> LibApps[Kavita]
+    Monitor --> MonApps[Beszel / Scrutiny]
+    AI --> AIApps[Ollama, native binary: APT only]
+    Docs --> DocApps[Paperless-ngx / paperless-gpt]
+    DocApps -.->|LLM API| AIApps
 ```
 
 The apply workflow updates configured LXC containers serially through Proxmox,
@@ -331,7 +338,9 @@ configured with a route or self-hosted runner into the home network.
 
 The project does not automate major Debian or Proxmox upgrades, APT repository
 changes, hypervisor reboots, Linux or Windows VM updates, Docker cleanup
-beyond dangling images, storage migration, backup deletion, or publishing this repository.
+beyond dangling images, storage migration, backup deletion, applications
+installed as standalone binaries outside APT and Compose (such as a native
+Ollama install), or publishing this repository.
 Those operations require separate planning, backups, maintenance windows, and
 human approval.
 
