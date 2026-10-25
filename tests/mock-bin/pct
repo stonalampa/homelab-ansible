@@ -59,11 +59,14 @@ case " $* " in
     ;;
   *" docker inspect "*)
     if [[ "$scenario" == "unhealthy" ]]; then
-      echo '{"Status":"running","Health":{"Status":"unhealthy"}}'
+      echo '/mock-app running unhealthy'
     elif [[ "$scenario" == "restarting" ]]; then
-      echo '{"Status":"restarting"}'
+      echo '/mock-app restarting none'
+    elif [[ "$scenario" == "starting" ]] \
+         && [[ "$(grep -c ' docker inspect ' "$log_file")" -lt 2 ]]; then
+      echo '/mock-app running starting'
     else
-      echo '{"Status":"running","Health":{"Status":"healthy"}}'
+      echo '/mock-app running healthy'
     fi
     ;;
   *)

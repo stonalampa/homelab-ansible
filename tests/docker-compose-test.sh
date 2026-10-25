@@ -8,6 +8,7 @@ trap 'rm -rf "$test_dir"' EXIT
 run_case() {
   local scenario="$1"
   local expected_status="$2"
+  local expected_error="${3:-}"
   local log_file="$test_dir/${scenario}.log"
 
   DOCKER_MOCK_BIN="$repo_dir/tests/mock-bin" \
@@ -17,6 +18,7 @@ run_case() {
     ansible-playbook \
       -i "$repo_dir/tests/fixtures/docker-compose-inventory.yml" \
       --extra-vars "expected_status=$expected_status" \
+      --extra-vars "{\"expected_error\":\"$expected_error\"}" \
       "$repo_dir/tests/docker-compose.yml" >/dev/null
 }
 
@@ -47,14 +49,18 @@ if grep -F "docker compose --project-directory /srv/example-stack up -d" \
   exit 1
 fi
 
-run_case unhealthy FAILED
+run_case unhealthy FAILED "mock-app running unhealthy"
 grep -F "docker compose --project-directory /srv/example-stack ps -q" \
   "$test_dir/unhealthy.log" >/dev/null
-grep -F "docker inspect --format {{json .State}} mock-container-id" \
-  "$test_dir/unhealthy.log" >/dev/null
+grep -F "docker inspect --format {{.Name}} {{.State.Status}}" \
+  "$test_dir/unhealthy.log" | grep -F "mock-container-id" >/dev/null
 
-run_case restarting FAILED
+run_case restarting FAILED "mock-app restarting none"
 grep -F "docker compose --project-directory /srv/example-stack ps -q" \
   "$test_dir/restarting.log" >/dev/null
+
+# A healthcheck still in its start period is polled again, not failed.
+run_case starting SUCCESS
+[[ "$(grep -c ' docker inspect ' "$test_dir/starting.log")" == "2" ]]
 
 echo "Docker Compose role mock checks passed."

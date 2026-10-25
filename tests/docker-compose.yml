@@ -7,6 +7,8 @@
   vars:
     connectivity_check_timeout: 2
     workflow_limit: docker
+    docker_compose_update_apply_health_retries: 3
+    docker_compose_update_apply_health_delay: 0
     homelab_compose_projects:
       - lxc_id: 903
         target: compose-example
@@ -19,4 +21,5 @@
         that:
           - docker_compose_update_apply_results | length == 1
           - docker_compose_update_apply_results[0].status == expected_status
+          - expected_error in docker_compose_update_apply_results[0].error
 

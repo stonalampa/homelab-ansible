@@ -32,23 +32,37 @@
       ansible.builtin.assert:
         that: host_docker_compose_update_apply_ids.stdout_lines | length > 0
 
-    - name: Inspect host Compose container states
+    # One line per container: "/name status health". Healthchecks report
+    # "starting" for their start period, so wait until none are starting.
+    - name: Wait for host Compose container healthchecks to settle
       ansible.builtin.command:
-        argv: [docker, inspect, --format, "{{ '{{json .State}}' }}", "{{ item }}"]
-      loop: "{{ host_docker_compose_update_apply_ids.stdout_lines }}"
-      register: host_docker_compose_update_apply_inspect
+        argv: >-
+          {{ ['docker', 'inspect', '--format',
+              '{{.Name}} {{.State.Status}} '
+              ~ '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}']
+             + host_docker_compose_update_apply_ids.stdout_lines }}
+      register: host_docker_compose_update_apply_states
+      until: >-
+        host_docker_compose_update_apply_states.rc == 0
+        and host_docker_compose_update_apply_states.stdout_lines
+            | select('search', ' starting$') | list | length == 0
+      retries: "{{ host_docker_compose_update_apply_health_retries | default(24) }}"
+      delay: "{{ host_docker_compose_update_apply_health_delay | default(5) }}"
       changed_when: false
 
     - name: Require every host Compose container to be running and healthy
+      vars:
+        host_docker_compose_update_apply_bad: >-
+          {{ host_docker_compose_update_apply_states.stdout_lines
+             | reject('match', '^\S+ running (healthy|none)$')
+             | map('regex_replace', '^/', '')
+             | list }}
       ansible.builtin.assert:
         that:
-          - (item.stdout | from_json).Status | lower == 'running'
-          - >-
-            (item.stdout | from_json).Health is not defined
-            or (item.stdout | from_json).Health.Status | default('') | lower == 'healthy'
-      loop: "{{ host_docker_compose_update_apply_inspect.results }}"
-      loop_control:
-        label: "container"
+          - host_docker_compose_update_apply_bad | length == 0
+        fail_msg: >-
+          Not running/healthy after up -d (container status health):
+          {{ host_docker_compose_update_apply_bad | join(', ') }}
 
     - name: Record successful host Compose update
       ansible.builtin.set_fact:

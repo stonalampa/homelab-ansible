@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+report_dir="${repo_dir}/reports"
+show_all=false
+report_file=""
+
+usage() {
+  echo "Usage: $0 [--all] [REPORT_FILE]"
+  echo "Summarizes the newest reports/update-*.json, or REPORT_FILE."
+  echo "Exit status: 0 no failures, 1 one or more FAILED targets, 2 no report."
+}
+
+while (($#)); do
+  case "$1" in
+    --all)
+      show_all=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      [[ -z "$report_file" ]] || { usage >&2; exit 2; }
+      report_file="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$report_file" ]]; then
+  # Report names embed a UTC timestamp, so lexical order is chronological.
+  report_file="$(find "$report_dir" -maxdepth 1 -name 'update-*.json' 2>/dev/null \
+    | sort | tail -n 1)"
+  [[ -n "$report_file" ]] || {
+    echo "No reports found in $report_dir; run ./bin/update-all first." >&2
+    exit 2
+  }
+fi
+[[ -f "$report_file" ]] || { echo "Report not found: $report_file" >&2; exit 2; }
+
+color=false
+[[ -t 1 && -z "${NO_COLOR:-}" ]] && color=true
+
+python3 -I - "$report_file" "$show_all" "$color" <<'PY'
+import json
+import re
+import sys
+from collections import Counter
+from datetime import datetime, timezone
+
+path, show_all, color = sys.argv[1], sys.argv[2] == "true", sys.argv[3] == "true"
+with open(path, encoding="utf-8") as handle:
+    data = json.load(handle)
+results = data.get("results", [])
+
+COLORS = {"FAILED": "31", "SKIPPED": "33", "SUCCESS": "32"}
+
+
+def paint(text, status):
+    if not color or status not in COLORS:
+        return text
+    return f"\033[{COLORS[status]}m{text}\033[0m"
+
+
+def started():
+    raw = data.get("generated_at", "")
+    try:
+        moment = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return raw or "unknown"
+    minutes = int((datetime.now(timezone.utc) - moment).total_seconds() // 60)
+    age = f"{minutes} min ago" if minutes < 120 else f"{minutes // 60} h ago"
+    return f"{moment.astimezone():%Y-%m-%d %H:%M} ({age})"
+
+
+def print_detail(row):
+    print(f"  {paint(row['target'], row['status'])}  [{row['type']}]")
+    error = row.get("error") or "no detail recorded"
+    match = re.match(r"task=(.*?); rc=(.*?); error=(.*)", error, re.DOTALL)
+    if match:
+        task, rc, message = match.groups()
+        print(f"    task:  {task}")
+        if rc != "n/a":
+            print(f"    rc:    {rc}")
+    else:
+        message = error
+    lines = message.strip().splitlines() or [""]
+    print(f"    error: {lines[0]}")
+    for line in lines[1:]:
+        print(f"           {line}")
+
+
+counts = Counter(row["status"] for row in results)
+reboot = [row["target"] for row in results if row.get("reboot_required") == "yes"]
+
+print(f"Report:  {path}")
+print(f"Started: {started()}")
+print("Result:  " + ", ".join(
+    paint(f"{counts[status]} {status}", status)
+    for status in ("SUCCESS", "FAILED", "SKIPPED") if counts[status]
+) if results else "Result:  no targets recorded")
+print(f"Reboot required: {', '.join(reboot) or 'none'}")
+
+if show_all:
+    width = max((len(row["target"]) for row in results), default=0)
+    print()
+    for row in results:
+        print(f"  {row['target']:<{width}}  {row['type']:<12} "
+              f"{paint(row['status'], row['status'])}")
+
+for status in ("FAILED", "SKIPPED"):
+    rows = [row for row in results if row["status"] == status]
+    if rows:
+        print()
+        print(paint(f"{status} ({len(rows)})", status))
+        for row in rows:
+            print_detail(row)
+
+if not counts["FAILED"]:
+    print()
+    print(paint("Nothing failed.", "SUCCESS"))
+sys.exit(1 if counts["FAILED"] else 0)
+PY

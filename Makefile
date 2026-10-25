@@ -1,10 +1,13 @@
-.PHONY: check cleanup integration lint syntax test update
+.PHONY: check cleanup integration lint report syntax test update
 
 check:
 	./bin/update-check
 
 cleanup:
 	./bin/docker-cleanup
+
+report:
+	./bin/report
 
 lint:
 	yamllint .

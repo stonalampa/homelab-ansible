@@ -144,46 +144,38 @@
           - docker_compose_update_apply_ps_ids.stdout_lines | length > 0
         fail_msg: "Compose returned no containers after up -d."
 
-    - name: Read every Compose container state
+    # One line per container: "/name status health". Healthchecks report
+    # "starting" for their start period, so wait until none are starting.
+    - name: Wait for Compose container healthchecks to settle
       ansible.builtin.command:
-        argv:
-          - pct
-          - exec
-          - "{{ docker_compose_update_apply_item.lxc_id | string }}"
-          - --
-          - docker
-          - inspect
-          - --format
-          - "{{ '{{json .State}}' }}"
-          - "{{ item }}"
-      loop: "{{ docker_compose_update_apply_ps_ids.stdout_lines }}"
-      register: docker_compose_update_apply_inspect
+        argv: >-
+          {{ ['pct', 'exec', docker_compose_update_apply_item.lxc_id | string, '--',
+              'docker', 'inspect', '--format',
+              '{{.Name}} {{.State.Status}} '
+              ~ '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}']
+             + docker_compose_update_apply_ps_ids.stdout_lines }}
+      register: docker_compose_update_apply_states
+      until: >-
+        docker_compose_update_apply_states.rc == 0
+        and docker_compose_update_apply_states.stdout_lines
+            | select('search', ' starting$') | list | length == 0
+      retries: "{{ docker_compose_update_apply_health_retries | default(24) }}"
+      delay: "{{ docker_compose_update_apply_health_delay | default(5) }}"
       changed_when: false
 
-    - name: Initialize parsed Compose container states
-      ansible.builtin.set_fact:
-        docker_compose_update_apply_containers: []
-
-    - name: Parse Compose container states
-      ansible.builtin.set_fact:
-        docker_compose_update_apply_containers: >-
-          {{ docker_compose_update_apply_containers + [item.stdout | from_json] }}
-      loop: "{{ docker_compose_update_apply_inspect.results }}"
-      loop_control:
-        label: "{{ item.item }}"
-
     - name: Require every Compose container to be running and healthy
+      vars:
+        docker_compose_update_apply_bad: >-
+          {{ docker_compose_update_apply_states.stdout_lines
+             | reject('match', '^\S+ running (healthy|none)$')
+             | map('regex_replace', '^/', '')
+             | list }}
       ansible.builtin.assert:
         that:
-          - item.Status | lower == 'running'
-          - >-
-            item.Health is not defined
-            or item.Health.Status | default('') | lower == 'healthy'
+          - docker_compose_update_apply_bad | length == 0
         fail_msg: >-
-          A Compose container is not running/healthy after up -d.
-      loop: "{{ docker_compose_update_apply_containers }}"
-      loop_control:
-        label: "container"
+          Not running/healthy after up -d (container status health):
+          {{ docker_compose_update_apply_bad | join(', ') }}
 
     - name: Record successful Compose update
       ansible.builtin.set_fact:

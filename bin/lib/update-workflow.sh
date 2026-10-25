@@ -101,6 +101,12 @@ run_update_workflow() {
     "${apply_args[@]}" "$repo_dir/playbooks/$apply_playbook"
   apply_rc=$?
 
+  # Repeat the outcome compactly below the long Ansible output.
+  if [[ -f "$report_file" ]]; then
+    echo
+    "$repo_dir/bin/report" "$report_file" || true
+  fi
+
   if [[ "$manages_homebrew" == true \
         && "$workflow_limit" =~ ^(all|localhost|homebrew)$ ]]; then
     echo "Updating the Ansible runtime after the playbook has exited."

@@ -87,12 +87,26 @@ are upgraded after the playbook exits, followed by `brew cleanup`. Do not run
 the wrapper itself with sudo because Homebrew must run as the logged-in user.
 Missing prerequisites are `SKIPPED`; an actual pull or up failure is `FAILED`.
 After `up -d`, every Compose container must be running and either healthy or
-without a health status. Exited, dead, restarting, and unhealthy states fail
+without a health status; containers still in their healthcheck start period
+(`starting`) are polled every 5 seconds for up to 2 minutes first. Exited, dead, restarting, and unhealthy states fail
 that project without stopping later projects. Configured HTTP/HTTPS and TCP
 checks run afterward from the control node and preserve partial results.
 The final table is always printed. Any `FAILED` result makes the command exit
 non-zero after the report. A sanitized JSON report is also written with mode
 `0600` beneath the Git-ignored `reports/` directory.
+
+Both apply commands end with a compact summary from `./bin/report`. Run it again
+at any time to see what failed in the newest report, including the failed task
+and, for Compose projects, which container was not running or healthy:
+
+```bash
+./bin/report            # counts, reboot list, FAILED and SKIPPED details
+./bin/report --all      # also list every target
+./bin/report reports/update-2030-01-01T08-00-00Z.json
+```
+
+It exits `1` when the report contains a `FAILED` target and `2` when no report
+exists, so it can gate scripts.
 
 ## Safety decisions
 
